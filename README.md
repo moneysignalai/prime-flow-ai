@@ -6,8 +6,7 @@ Real-time institutional options flow intelligence with clear, rules-based logic.
 
 - **Configuration** – YAML-first loader with JSON fallback plus ticker-level overrides (`flow_bot/config.py`).
 - **Domain models** – Dataclasses for flow events, signals, and paper positions (`flow_bot/models.py`).
-- **Flow client abstraction** – Stubs for Polygon/Massive streaming and historical pulls (`flow_bot/flow_client.py`), with a
-  volume screener hook to watch the top 500 symbols by share volume when providers expose that data.
+- **Flow client abstraction** – Stubs for Polygon/Massive streaming and historical pulls (`flow_bot/flow_client.py`).
 - **Context engine** – Hooks for RVOL, VWAP, trend flags, and regime detection (`flow_bot/context_engine.py`).
 - **Strategies** – Scalp, day-trade, and swing evaluators using shared scoring (`flow_bot/strategies/`).
 - **Signal engine** – Orchestrates context + strategies to emit signals (`flow_bot/signal_engine.py`).
@@ -37,12 +36,6 @@ Example highlights:
 4. **Signals** – Valid strategies emit `Signal` objects containing tags, rules triggered, and context.
 5. **Alerting** – `routes.route_signal` picks alert mode/channel; `alerts.format_*` builds human-readable text; `routes.send_alert` is stubbed to POST/print (add real webhooks).
 6. **Paper Trading & Logging** – `PaperTradingEngine` opens/updates paper positions; `SignalLogger` (and TODO paper-trade logger) append CSV rows; `Heartbeat` summarizes throughput.
-
-### Universe selection (top-volume focus)
-
-- `FlowClient.get_top_volume_tickers(limit=500)` is the intended entry point for pulling a fresh list of the highest-volume
-  equities from Polygon/Massive screeners. Live and historical clients can use this to define the scanning universe without
-  maintaining manual ticker lists. The stub currently returns an empty list until credentials/API integration are added.
 
 ## Running the Bot
 
