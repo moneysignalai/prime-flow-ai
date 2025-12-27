@@ -6,8 +6,7 @@ Real-time institutional options flow intelligence with clear, rules-based logic.
 
 - **Configuration** – YAML-first loader with JSON fallback plus ticker-level overrides (`flow_bot/config.py`).
 - **Domain models** – Dataclasses for flow events, signals, and paper positions (`flow_bot/models.py`).
-- **Flow client abstraction** – Stubs for Polygon/Massive streaming and historical pulls (`flow_bot/flow_client.py`), with a
-  volume screener hook to watch the top 500 symbols by share volume when providers expose that data.
+- **Flow client abstraction** – Stubs for Polygon/Massive streaming and historical pulls (`flow_bot/flow_client.py`).
 - **Context engine** – Hooks for RVOL, VWAP, trend flags, and regime detection (`flow_bot/context_engine.py`).
 - **Strategies** – Scalp, day-trade, and swing evaluators using shared scoring (`flow_bot/strategies/`).
 - **Signal engine** – Orchestrates context + strategies to emit signals (`flow_bot/signal_engine.py`).
@@ -22,7 +21,6 @@ The default `config.yaml` exposes experiment metadata, general runtime limits, m
 
 - Load configuration with `load_config()` which defaults to `config.yaml` or accepts a custom path.
 - Merge per-ticker overrides and mode configs via `get_ticker_config(global_cfg, ticker, mode)`.
-- Environment secrets are centralized via `load_api_keys()` which reads `POLYGON_MASSIVE_KEY` (or legacy `POLYGON_API_KEY` / `MASSIVE_API_KEY`) from the environment for provider access. `load_config()` injects these under `config['api_keys']` so all modules share one source of truth.
 
 Example highlights:
 
