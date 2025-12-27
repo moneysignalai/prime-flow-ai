@@ -1,0 +1,76 @@
+"""Day-trade oriented trend strategy."""
+from __future__ import annotations
+
+from datetime import timedelta
+from typing import Optional
+from uuid import uuid4
+
+from ..config import get_ticker_config
+from ..models import FlowEvent, Signal
+from ..scoring import score_signal
+from .base import Strategy
+
+
+class DayTrendStrategy(Strategy):
+    name = "day_trend"
+
+    def evaluate(
+        self, event: FlowEvent, context: dict, market_regime: dict, global_cfg: dict
+    ) -> Optional[Signal]:
+        mode_cfg = get_ticker_config(global_cfg, event.ticker, "day_trade")
+
+        dte = (event.expiry - event.event_time.date()).days
+        if dte > mode_cfg.get("max_dte", 10):
+            return None
+        if event.notional < mode_cfg.get("min_premium", 0):
+            return None
+
+        otm_pct = abs(event.strike - event.underlying_price) / max(event.underlying_price, 1) * 100
+        if otm_pct > mode_cfg.get("max_otm_pct", 100):
+            return None
+
+        trend_15m_up = bool(context.get("trend_15m_up"))
+        if event.side == "CALL":
+            trend_aligned = trend_15m_up
+            direction = "BULLISH"
+        else:
+            trend_aligned = not trend_15m_up
+            direction = "BEARISH"
+
+        breaking_level = bool(context.get("breaking_level"))
+
+        enriched_context = dict(context)
+        enriched_context["trend_aligned"] = trend_aligned and breaking_level
+
+        strength, tags, rules = score_signal(event, enriched_context, mode_cfg)
+        if not breaking_level:
+            return None
+        if strength < mode_cfg.get("min_strength", 0):
+            return None
+
+        tags.append("BREAKOUT")
+        if event.is_sweep:
+            tags.append("SWEEP")
+        if event.is_aggressive:
+            tags.append("AGGRESSIVE")
+        if breaking_level:
+            rules.append("breaking_level")
+        rules.append("day_trade_filters_passed")
+
+        kind = "DAY_CALL" if event.side == "CALL" else "DAY_PUT"
+        return Signal(
+            id=str(uuid4()),
+            ticker=event.ticker,
+            kind=kind,
+            direction=direction,
+            strength=strength,
+            tags=tags,
+            flow_events=[event],
+            context={
+                "rules_triggered": rules,
+                "market_regime": market_regime,
+                "price_info": {"otm_pct": otm_pct},
+            },
+            created_at=event.event_time,
+            experiment_id=global_cfg.get("experiment_id", "unknown"),
+        )
