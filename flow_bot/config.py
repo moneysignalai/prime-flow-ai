@@ -1,12 +1,11 @@
 """Configuration loader for Flow Bot.
 
 Provides YAML-first loading with JSON fallback and helper utilities
-for ticker-specific configuration merging and environment-based secrets.
+for ticker-specific configuration merging.
 """
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any, Dict
 
@@ -19,33 +18,12 @@ except Exception:  # pragma: no cover - optional dependency
 DEFAULT_CONFIG_PATH = Path("config.yaml")
 
 
-def load_api_keys() -> Dict[str, str]:
-    """Load provider API keys from environment variables in one place.
-
-    The Polygon and Massive integrations currently share the same key. The
-    primary variable is ``POLYGON_MASSIVE_KEY``; for backward compatibility,
-    ``POLYGON_API_KEY`` and ``MASSIVE_API_KEY`` are also checked.
-    """
-
-    polygon_massive_key = (
-        os.getenv("POLYGON_MASSIVE_KEY")
-        or os.getenv("POLYGON_API_KEY")
-        or os.getenv("MASSIVE_API_KEY")
-    )
-
-    return {"polygon_massive": polygon_massive_key}
-
-
 def load_config(path: str | None = None) -> Dict[str, Any]:
-    """Load configuration from YAML or JSON and attach API keys.
+    """Load configuration from YAML or JSON.
 
     If ``path`` is ``None``, the loader will look for ``config.yaml`` in the
     repository root. YAML is preferred; if PyYAML is not installed, a JSON
     file with the same structure can be used instead.
-
-    API keys are always sourced from environment variables via
-    :func:`load_api_keys` and injected under the ``api_keys`` key so callers
-    have a single source of truth for provider credentials.
     """
 
     def _load_yaml(config_path: Path) -> Dict[str, Any]:
@@ -64,33 +42,23 @@ def load_config(path: str | None = None) -> Dict[str, Any]:
 
     if config_path.suffix.lower() in {".yaml", ".yml"}:
         try:
-            cfg = _load_yaml(config_path)
-            cfg["api_keys"] = load_api_keys()
-            return cfg
+            return _load_yaml(config_path)
         except RuntimeError:
             # Fall back to JSON with same stem if YAML unavailable
             json_path = config_path.with_suffix(".json")
             if json_path.exists():
-                cfg = _load_json(json_path)
-                cfg["api_keys"] = load_api_keys()
-                return cfg
+                return _load_json(json_path)
             raise
     if config_path.suffix.lower() == ".json":
-        cfg = _load_json(config_path)
-        cfg["api_keys"] = load_api_keys()
-        return cfg
+        return _load_json(config_path)
 
     # Attempt YAML then JSON based on default filenames
     try:
-        cfg = _load_yaml(config_path)
-        cfg["api_keys"] = load_api_keys()
-        return cfg
+        return _load_yaml(config_path)
     except Exception:
         json_path = config_path.with_suffix(".json")
         if json_path.exists():
-            cfg = _load_json(json_path)
-            cfg["api_keys"] = load_api_keys()
-            return cfg
+            return _load_json(json_path)
         raise
 
 

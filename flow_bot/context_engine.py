@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict
 
 from .models import FlowEvent
 
@@ -12,42 +11,29 @@ class ContextEngine:
         # TODO: connect to any required price/market data source if needed
         self.cfg = config
 
-    def get_ticker_context(self, event: FlowEvent) -> Dict[str, object]:
-        """Compute lightweight context for a given FlowEvent.
-
-        The placeholders below keep strategies functional without external
-        market data. Replace with real VWAP, trend, levels, and RVOL when price
-        history access is available.
+    def get_ticker_context(self, event: FlowEvent) -> dict:
         """
-
-        price_info = {
-            "otm_pct": abs(event.strike - event.underlying_price)
-            / max(event.underlying_price, 1)
-            * 100,
-            "dte": (event.expiry - event.event_time.date()).days,
-        }
-
-        context: Dict[str, object] = {
-            "vwap": None,
-            "above_vwap": False,
-            "trend_5m_up": False,
-            "trend_15m_up": False,
-            "trend_daily_up": False,
-            "breaking_level": False,
-            "rvol": 1.0,
-            "price_info": price_info,
-        }
+        Compute context dict for a given FlowEvent, including placeholder values
+        until real market data integrations are provided.
+        """
+        context: dict = {}
+        # TODO: Implement real calculations from price history.
+        context["vwap"] = None
+        context["above_vwap"] = None
+        context["trend_5m_up"] = None
+        context["trend_15m_up"] = None
+        context["trend_daily_up"] = None
+        context["breaking_level"] = False
+        context["rvol"] = 1.0
         return context
 
-    def get_market_regime(self, now: datetime) -> Dict[str, str]:
-        """Compute market regime flags based on index ETFs and volatility gauges.
-
-        Real implementation should ingest SPY/QQQ trend and VIX levels. This
-        placeholder keeps the shape predictable for downstream consumers.
+    def get_market_regime(self, now: datetime) -> dict:
         """
-
+        Compute market regime flags based on index ETFs and volatility gauges.
+        """
         regime = {
             "trend": "UNKNOWN",
             "volatility": "UNKNOWN",
         }
+        # TODO: Implement basic regime detection using index data.
         return regime

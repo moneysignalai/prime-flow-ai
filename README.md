@@ -6,7 +6,7 @@ Real-time institutional options flow intelligence with clear, rules-based logic.
 
 - **Configuration** – YAML-first loader with JSON fallback plus ticker-level overrides (`flow_bot/config.py`).
 - **Domain models** – Dataclasses for flow events, signals, and paper positions (`flow_bot/models.py`).
-- **Flow client abstraction** – Stubs for Polygon/Massive streaming and historical pulls (`flow_bot/flow_client.py`), with a volume screener hook to watch the top 500 symbols by share volume when providers expose that data.
+- **Flow client abstraction** – Stubs for Polygon/Massive streaming and historical pulls (`flow_bot/flow_client.py`).
 - **Context engine** – Hooks for RVOL, VWAP, trend flags, and regime detection (`flow_bot/context_engine.py`).
 - **Strategies** – Scalp, day-trade, and swing evaluators using shared scoring (`flow_bot/strategies/`).
 - **Signal engine** – Orchestrates context + strategies to emit signals (`flow_bot/signal_engine.py`).
@@ -21,7 +21,6 @@ The default `config.yaml` exposes experiment metadata, general runtime limits, m
 
 - Load configuration with `load_config()` which defaults to `config.yaml` or accepts a custom path.
 - Merge per-ticker overrides and mode configs via `get_ticker_config(global_cfg, ticker, mode)`.
-- Environment secrets are centralized via `load_api_keys()` which reads `POLYGON_MASSIVE_KEY` (or legacy `POLYGON_API_KEY` / `MASSIVE_API_KEY`) from the environment for provider access. `load_config()` injects these under `config["api_keys"]` so all modules share one source of truth.
 
 Example highlights:
 
@@ -40,7 +39,9 @@ Example highlights:
 
 ### Universe selection (top-volume focus)
 
-- `FlowClient.get_top_volume_tickers(limit=500)` is the intended entry point for pulling a fresh list of the highest-volume equities from Polygon/Massive screeners. Live and historical clients can use this to define the scanning universe without maintaining manual ticker lists. The stub currently returns an empty list until credentials/API integration are added.
+- `FlowClient.get_top_volume_tickers(limit=500)` is the intended entry point for pulling a fresh list of the highest-volume
+  equities from Polygon/Massive screeners. Live and historical clients can use this to define the scanning universe without
+  maintaining manual ticker lists. The stub currently returns an empty list until credentials/API integration are added.
 
 ## Running the Bot
 
@@ -114,66 +115,3 @@ flow_bot/
 config.yaml          # Default thresholds, tickers, routing placeholders
 ```
 
-## Sample Alert Outputs
-
-Below are example alerts using the current sectioned formatting (flow, structure, intent, rationale, risk, regime, timestamp) with MM-DD-YYYY expiries and 12-hour ET times.
-
-**Scalp (short)**
-```
-⚡ SCALP CALL – TSLA (Strength 7.9/10)
-1000x @ $1.85 | Strike 245 exp 02-21-2025 | Notional $185,000 | Vol/OI 5000/2200 | SWEEP, AGGRESSIVE
-
-Flow Intent (intraday): aggressive CALL flow; size looks like new money; tags: SWEEP, AGGRESSIVE, VOL>OI.
-Price / Microstructure:
-  Underlying $243.40 | OTM 0.8% | DTE 1 | Above VWAP
-  Microstructure: pushing off VWAP; trend 1m/5m aligned; level pressure=yes.
-
-Why this matters:
-  sweep/aggression + VWAP/momentum alignment suggest tape control; favors a fast upside continuation instead of noise.
-
-Risk & timing:
-  invalidate on VWAP or trigger loss; suited for a 5–20 min scalp with tight stops.
-
-Regime: trend=UP vol=HIGH
-Time: 10:12:34 AM ET
-```
-
-**Day Trade (medium)**
-```
-📈 DAY TRADE PUT – AMD (Strength 8.3/10)
-500x @ $2.40 | Strike 135 exp 03-14-2025 | Notional $120,000 | Vol/OI 12000/4500 | AGGRESSIVE
-
-Flow Intent (session): assertive participation pressing the theme; vol vs OI 12000/4500; tags: AGGRESSIVE, VOL>OI, LEVEL_BREAK.
-Price / Structure:
-  Underlying $138.20 | OTM 1.3% | DTE 12 | Below VWAP | RVOL 1.8
-  VWAP/EMA: overhead/drag; 15m trend uncertain; key level=break/hold; RVOL=1.8.
-
-Why this is a good day-trade alert:
-  flow + intraday structure and regime point to sellers control; timing favors continuation movement rather than random noise.
-
-Risk & execution:
-  invalidate on VWAP/15m trend break or failed level retest; intraday idea (approx. 30–180 minutes if structure holds).
-
-Regime: trend=DOWN vol=ELEVATED
-Time: 11:05:12 AM ET
-```
-
-**Swing (deep dive)**
-```
-🧠 SWING CALL – META (Strength 9.2/10)
-750x @ $9.40 | Strike 400 exp 04-18-2025 | Notional $6,300,000 | Vol/OI 20000/8000 | AGGRESSIVE, PERSISTENT_BUYER
-
-Flow Intent (swing): persistent flow; DTE/OTM consistent with positioning; tags: AGGRESSIVE, PERSISTENT_BUYER; Cluster notional ≈ $6,300,000.
-Price / Structure (HTF):
-  Underlying $384.20 | OTM 4.1% | DTE 35 | Above VWAP | RVOL 1.2
-  HTF posture: daily trend aligned; structure breakout/pullback; level posture=supportive; RVOL=1.2.
-
-Why this is a good swing alert:
-  size + repetition at HTF structure implies institutional participation; aligns with the prevailing trend in current regime and supports an accumulation thesis rather than short-term noise.
-
-Risk & plan:
-  invalidate on break of recent swing pivot/HTF level; holding window on the order of days to weeks; informational context, not advice.
-
-Regime: trend=UP vol=MEDIUM
-Time: 01:18:45 PM ET
-```
