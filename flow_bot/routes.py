@@ -2,23 +2,18 @@
 from __future__ import annotations
 
 import json
-import logging
-import urllib.error
-import urllib.request
+import sys
 from dataclasses import dataclass
-from typing import Optional
+
+import urllib.request
 
 from .models import Signal
-
-LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
 class AlertRoute:
-    """Alert destination info."""
-
-    mode: str  # "short" | "medium" | "deep_dive"
-    channel: str  # e.g. "telegram_scalps"
+    mode: str
+    channel: str
 
 
 def route_signal(signal: Signal, config: dict) -> AlertRoute:
@@ -30,25 +25,22 @@ def route_signal(signal: Signal, config: dict) -> AlertRoute:
     return AlertRoute(mode="medium", channel="telegram_main")
 
 
-def _lookup_webhook(config: dict, channel: str) -> Optional[str]:
-    return config.get("routing", {}).get("channels", {}).get(channel)
-
-
 def send_alert(route: AlertRoute, text: str, config: dict) -> None:
     """Send alert text to a configured channel.
 
-    Uses simple HTTP POST if a webhook URL is present; otherwise logs a dry-run.
+    Uses simple HTTP POST if a webhook URL is present; otherwise prints.
     """
-
-    url = _lookup_webhook(config, route.channel)
-    if not url or "PLACEHOLDER" in url.upper():
-        LOGGER.info("[DRY-RUN] %s not configured; skipping send. Text:\n%s", route.channel, text)
+    channel_map = config.get("routing", {}).get("channels", {})
+    url = channel_map.get(route.channel)
+    if not url or "PLACEHOLDER" in url:
+        print(f"[DRY-RUN] {route.channel}: {text}")
         return
 
+    # TODO: implement robust webhook delivery with retry/backoff
     payload = json.dumps({"text": text}).encode("utf-8")
     req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=5) as resp:  # nosec - webhook usage
+        with urllib.request.urlopen(req) as resp:  # type: ignore[arg-type]
             resp.read()
-    except urllib.error.URLError as exc:  # pragma: no cover - network path
-        LOGGER.error("Failed to send alert to %s: %s", route.channel, exc)
+    except Exception as exc:  # pragma: no cover - network stub
+        print(f"Failed to send alert to {route.channel}: {exc}", file=sys.stderr)
