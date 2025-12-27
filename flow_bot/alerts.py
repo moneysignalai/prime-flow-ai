@@ -18,11 +18,11 @@ def _format_time(signal: Signal) -> str:
     if ts is None and signal.flow_events:
         ts = signal.flow_events[0].event_time
     if ts is None:
-        return "⏰ TIME\nTime: n/a"
+        return "### ⏰ TIME\nTime: n/a"
     if ts.tzinfo is not None:
         ts = ts.astimezone(ZoneInfo("America/New_York"))
     time_text = ts.strftime("%I:%M:%S %p").lstrip("0")
-    return f"⏰ TIME\n{time_text} ET"
+    return f"### ⏰ TIME\n{time_text} ET"
 
 
 def _format_expiry(date_obj) -> str:
@@ -82,14 +82,14 @@ def _price_info(signal: Signal):
 def _format_price_micro_lines(signal: Signal) -> List[str]:
     event = _first_event(signal)
     info = _price_info(signal)
-    underlying = f"Underlying: ${event.underlying_price:.2f}" if event else "Underlying: n/a"
+    underlying = f"Underlying: **${event.underlying_price:.2f}**" if event else "Underlying: n/a"
     otm_pct = info.get("otm_pct")
-    otm = f"OTM: {otm_pct:.1f}%" if isinstance(otm_pct, (int, float)) else "OTM: n/a"
+    otm = f"OTM: **{otm_pct:.1f}%**" if isinstance(otm_pct, (int, float)) else "OTM: n/a"
     dte_val = info.get("dte")
-    dte = f"DTE: {dte_val}" if dte_val is not None else "DTE: n/a"
-    vwap = "VWAP: Above" if signal.context.get("above_vwap") else "VWAP: Near/Below"
+    dte = f"DTE: **{dte_val}**" if dte_val is not None else "DTE: n/a"
+    vwap = "VWAP: **Above**" if signal.context.get("above_vwap") else "VWAP: **Near/Below**"
     rvol_val = info.get("rvol")
-    rvol = f"RVOL: {rvol_val:.1f}" if isinstance(rvol_val, (int, float)) else None
+    rvol = f"RVOL: **{rvol_val:.1f}**" if isinstance(rvol_val, (int, float)) else None
     micro = "pushing off VWAP" if signal.context.get("above_vwap") else "fighting VWAP"
     trend = "1m + 5m aligned" if signal.context.get("trend_5m_up") else "intraday trend mixed"
     level_pressure = "pressure at key level = YES" if signal.context.get("breaking_level") else "pressure at key level = no"
@@ -116,14 +116,14 @@ def _format_price_micro_lines(signal: Signal) -> List[str]:
 def _format_intraday_structure_lines(signal: Signal) -> List[str]:
     event = _first_event(signal)
     info = _price_info(signal)
-    underlying = f"Underlying: ${event.underlying_price:.2f}" if event else "Underlying: n/a"
+    underlying = f"Underlying: **${event.underlying_price:.2f}**" if event else "Underlying: n/a"
     otm_pct = info.get("otm_pct")
-    otm = f"OTM: {otm_pct:.1f}%" if isinstance(otm_pct, (int, float)) else "OTM: n/a"
+    otm = f"OTM: **{otm_pct:.1f}%**" if isinstance(otm_pct, (int, float)) else "OTM: n/a"
     dte_val = info.get("dte")
-    dte = f"DTE: {dte_val}" if dte_val is not None else "DTE: n/a"
-    vwap = "VWAP: Below" if not signal.context.get("above_vwap") else "VWAP: Above"
+    dte = f"DTE: **{dte_val}**" if dte_val is not None else "DTE: n/a"
+    vwap = "VWAP: **Below**" if not signal.context.get("above_vwap") else "VWAP: **Above**"
     rvol_val = info.get("rvol")
-    rvol = f"RVOL: {rvol_val:.1f}" if isinstance(rvol_val, (int, float)) else "RVOL: n/a"
+    rvol = f"RVOL: **{rvol_val:.1f}**" if isinstance(rvol_val, (int, float)) else "RVOL: n/a"
     ema_view = "VWAP + EMA overhead" if not signal.context.get("above_vwap") else "VWAP + EMA supportive"
     trend_view = "15m trend aligned" if signal.context.get("trend_15m_up") else "15m trend uncertain"
     level_status = "price interacting with key break level" if signal.context.get("breaking_level") else "range/pullback"
@@ -144,14 +144,14 @@ def _format_intraday_structure_lines(signal: Signal) -> List[str]:
 def _format_htf_structure_lines(signal: Signal) -> List[str]:
     event = _first_event(signal)
     info = _price_info(signal)
-    underlying = f"Underlying: ${event.underlying_price:.2f}" if event else "Underlying: n/a"
+    underlying = f"Underlying: **${event.underlying_price:.2f}**" if event else "Underlying: n/a"
     otm_pct = info.get("otm_pct")
-    otm = f"OTM: {otm_pct:.1f}%" if isinstance(otm_pct, (int, float)) else "OTM: n/a"
+    otm = f"OTM: **{otm_pct:.1f}%**" if isinstance(otm_pct, (int, float)) else "OTM: n/a"
     dte_val = info.get("dte")
-    dte = f"DTE: {dte_val}" if dte_val is not None else "DTE: n/a"
-    vwap = "VWAP: Above" if signal.context.get("above_vwap") else "VWAP: Near/Below"
+    dte = f"DTE: **{dte_val}**" if dte_val is not None else "DTE: n/a"
+    vwap = "VWAP: **Above**" if signal.context.get("above_vwap") else "VWAP: **Near/Below**"
     rvol_val = info.get("rvol")
-    rvol = f"RVOL: {rvol_val:.1f}" if isinstance(rvol_val, (int, float)) else "RVOL: n/a"
+    rvol = f"RVOL: **{rvol_val:.1f}**" if isinstance(rvol_val, (int, float)) else "RVOL: n/a"
     daily_trend = "daily trend aligned" if signal.context.get("trend_daily_up") else "daily trend mixed"
     structure_view = "breakout → pullback" if signal.context.get("breaking_level") else "accumulating near value"
     level_view = "key levels supportive" if signal.context.get("above_vwap") else "near supply / resistance"
@@ -173,7 +173,7 @@ def _format_regime(signal: Signal) -> str:
     regime = signal.context.get("market_regime", {}) if isinstance(signal.context, dict) else {}
     trend = regime.get("trend", "UNKNOWN")
     vol = regime.get("volatility", "UNKNOWN")
-    return f"🌡️ REGIME\nTrend: {trend}\nVolatility: {vol}"
+    return f"### 🌡️ REGIME\nTrend: {trend}\nVolatility: {vol}"
 
 
 def _flow_intent_text(signal: Signal, horizon: str) -> str:
