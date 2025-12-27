@@ -17,12 +17,13 @@ def _format_flow_summary(signal: Signal) -> str:
 def format_short_alert(signal: Signal) -> str:
     """Format scalp-style short alerts."""
     event = signal.flow_events[0]
-    price_info = signal.context.get("price_info", {})
     header = f"⚡ SCALP {event.side} – {signal.ticker} (Strength {signal.strength:.1f}/10)"
-    price_line = f"Underlying ${event.underlying_price:.2f} | OTM {price_info.get('otm_pct', 0):.1f}%"
+    price_line = (
+        f"Underlying ${event.underlying_price:.2f} | OTM {signal.context['price_info'].get('otm_pct', 0):.1f}%"
+    )
     reasons = ", ".join(signal.tags)
     regime = signal.context.get("market_regime", {})
-    regime_line = f"Regime: trend={regime.get('trend', 'UNKNOWN')} vol={regime.get('volatility', 'UNKNOWN')}"
+    regime_line = f"Regime: trend={regime.get('trend')} vol={regime.get('volatility')}"
     return "\n".join(
         [
             header,
@@ -38,11 +39,8 @@ def format_short_alert(signal: Signal) -> str:
 def format_medium_alert(signal: Signal) -> str:
     """Format day-trade alerts with more context."""
     event = signal.flow_events[0]
-    price_info = signal.context.get("price_info", {})
     header = f"📈 DAY TRADE {event.side} – {signal.ticker} (Strength {signal.strength:.1f}/10)"
-    price_line = (
-        f"Underlying ${event.underlying_price:.2f} | Breakout level: {price_info.get('otm_pct', 0):.1f}% OTM"
-    )
+    price_line = f"Underlying ${event.underlying_price:.2f} | Breakout level: {signal.context['price_info'].get('otm_pct', 0):.1f}% OTM"
     reasons = ", ".join(signal.tags)
     regime = signal.context.get("market_regime", {})
     return "\n".join(
