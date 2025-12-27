@@ -1,12 +1,12 @@
 # Prime Flow AI
 
-Real-time institutional options flow intelligence with clear, rules-based logic. This repository provides a modular foundation for streaming options flow, enriching it with market context, generating signals for scalps/day trades/swings, and routing formatted alerts.
+Prime Flow AI is a rules-based, real-time institutional options flow intelligence engine. It ingests live or historical flow, enriches events with market context, evaluates configurable scalp/day/swing strategies, and produces high-quality alerts suitable for Telegram/webhooks. Secrets (API keys, webhooks) are expected from environment variables.
 
 ## Architecture at a Glance
 
-- **Configuration** – YAML-first loader with JSON fallback plus ticker-level overrides (`flow_bot/config.py`).
+- **Configuration** – YAML-first loader with JSON fallback and ticker-level overrides (`flow_bot/config.py`).
 - **Domain models** – Dataclasses for flow events, signals, and paper positions (`flow_bot/models.py`).
-- **Flow client abstraction** – Stubs for Polygon/Massive streaming and historical pulls (`flow_bot/flow_client.py`), including a universe hook to watch the top 500 symbols by share volume when providers expose that data.
+- **Flow client abstraction** – Stubs for Polygon/Massive streaming and historical pulls (`flow_bot/flow_client.py`), including a hook to watch the top 500 symbols by share volume when providers expose screeners.
 - **Context engine** – Hooks for RVOL, VWAP, trend flags, and regime detection (`flow_bot/context_engine.py`).
 - **Strategies** – Scalp, day-trade, and swing evaluators using shared scoring (`flow_bot/strategies/`).
 - **Signal engine** – Orchestrates context + strategies to emit signals (`flow_bot/signal_engine.py`).
@@ -17,11 +17,11 @@ Real-time institutional options flow intelligence with clear, rules-based logic.
 
 ## Configuration
 
-The default `config.yaml` exposes experiment metadata, general runtime limits, market regime thresholds, per-ticker overrides, strategy thresholds, and routing channel placeholders. Update webhook URLs and thresholds there; no secrets are hardcoded.
+The default `config.yaml` covers experiment metadata, runtime limits, market regime thresholds, per-ticker overrides, strategy thresholds, and routing channel placeholders. Update webhook URLs and thresholds there; no secrets are hardcoded.
 
-- Load configuration with `load_config()` which defaults to `config.yaml` or accepts a custom path.
+- Load configuration with `load_config()` (defaults to `config.yaml`, or pass a custom path).
 - Merge per-ticker overrides and mode configs via `get_ticker_config(global_cfg, ticker, mode)`.
-- Environment secrets are centralized via `load_api_keys()` which reads `POLYGON_MASSIVE_KEY` (or legacy `POLYGON_API_KEY` / `MASSIVE_API_KEY`) from the environment. `load_config()` injects these under `config["api_keys"]` so all modules share one source of truth.
+- Environment secrets are centralized via `load_api_keys()`, reading `POLYGON_MASSIVE_KEY` (or legacy `POLYGON_API_KEY` / `MASSIVE_API_KEY`). `load_config()` injects keys under `config["api_keys"]` so every module uses one source of truth.
 
 Example highlights:
 
