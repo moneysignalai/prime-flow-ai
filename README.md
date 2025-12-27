@@ -37,6 +37,12 @@ Example highlights:
 5. **Alerting** – `routes.route_signal` picks alert mode/channel; `alerts.format_*` builds human-readable text; `routes.send_alert` is stubbed to POST/print (add real webhooks).
 6. **Paper Trading & Logging** – `PaperTradingEngine` opens/updates paper positions; `SignalLogger` (and TODO paper-trade logger) append CSV rows; `Heartbeat` summarizes throughput.
 
+### Universe selection (top-volume focus)
+
+- `FlowClient.get_top_volume_tickers(limit=500)` is the intended entry point for pulling a fresh list of the highest-volume
+  equities from Polygon/Massive screeners. Live and historical clients can use this to define the scanning universe without
+  maintaining manual ticker lists. The stub currently returns an empty list until credentials/API integration are added.
+
 ## Running the Bot
 
 ### Live Mode
