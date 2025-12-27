@@ -59,6 +59,16 @@ class SwingAccumulationStrategy(Strategy):
         rules.append("swing_filters_passed")
 
         kind = "SWING_CALL" if event.side == "CALL" else "SWING_PUT"
+        otm_pct = abs(event.strike - event.underlying_price) / max(event.underlying_price, 1) * 100
+
+        price_info = {
+            "persistent_notional": self.chain_totals[key],
+            "dte": dte,
+            "otm_pct": otm_pct,
+            "rvol": context.get("rvol"),
+            "underlying_price": event.underlying_price,
+        }
+
         return Signal(
             id=str(uuid4()),
             ticker=event.ticker,
@@ -68,12 +78,10 @@ class SwingAccumulationStrategy(Strategy):
             tags=tags,
             flow_events=[event],
             context={
+                **enriched_context,
                 "rules_triggered": rules,
                 "market_regime": market_regime,
-                "price_info": {
-                    "persistent_notional": self.chain_totals[key],
-                    "dte": dte,
-                },
+                "price_info": price_info,
             },
             created_at=event.event_time,
             experiment_id=global_cfg.get("experiment_id", "unknown"),

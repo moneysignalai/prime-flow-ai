@@ -59,6 +59,13 @@ class ScalpMomentumStrategy(Strategy):
         rules.append("scalp_filters_passed")
 
         kind = "SCALP_CALL" if event.side == "CALL" else "SCALP_PUT"
+        price_info = {
+            "otm_pct": otm_pct,
+            "rvol": context.get("rvol"),
+            "dte": dte,
+            "underlying_price": event.underlying_price,
+        }
+
         signal = Signal(
             id=str(uuid4()),
             ticker=event.ticker,
@@ -68,12 +75,10 @@ class ScalpMomentumStrategy(Strategy):
             tags=tags,
             flow_events=[event],
             context={
+                **context,
                 "rules_triggered": rules,
                 "market_regime": market_regime,
-                "price_info": {
-                    "otm_pct": otm_pct,
-                    "rvol": context.get("rvol"),
-                },
+                "price_info": price_info,
             },
             created_at=event.event_time,
             experiment_id=global_cfg.get("experiment_id", "unknown"),

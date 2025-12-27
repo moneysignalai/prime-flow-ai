@@ -37,7 +37,13 @@ class DayTrendStrategy(Strategy):
             trend_aligned = not trend_15m_up
             direction = "BEARISH"
 
-        breaking_level = bool(context.get("breaking_level"))
+        breaking_level = context.get("breaking_level")
+        if breaking_level is None:
+            breaking_level = bool(event.is_aggressive or event.is_sweep)
+
+        # Relative volume guard if provided
+        if context.get("rvol", 0) < mode_cfg.get("min_rvol", 0):
+            return None
 
         enriched_context = dict(context)
         enriched_context["trend_aligned"] = trend_aligned and breaking_level
@@ -58,6 +64,13 @@ class DayTrendStrategy(Strategy):
         rules.append("day_trade_filters_passed")
 
         kind = "DAY_CALL" if event.side == "CALL" else "DAY_PUT"
+        price_info = {
+            "otm_pct": otm_pct,
+            "dte": dte,
+            "rvol": context.get("rvol"),
+            "underlying_price": event.underlying_price,
+        }
+
         return Signal(
             id=str(uuid4()),
             ticker=event.ticker,
@@ -67,9 +80,10 @@ class DayTrendStrategy(Strategy):
             tags=tags,
             flow_events=[event],
             context={
+                **enriched_context,
                 "rules_triggered": rules,
                 "market_regime": market_regime,
-                "price_info": {"otm_pct": otm_pct},
+                "price_info": price_info,
             },
             created_at=event.event_time,
             experiment_id=global_cfg.get("experiment_id", "unknown"),

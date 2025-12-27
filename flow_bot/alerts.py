@@ -19,8 +19,9 @@ def _format_time(signal: Signal) -> str:
         ts = signal.flow_events[0].event_time
     if ts is None:
         return "### ⏰ TIME\nTime: n/a"
-    if ts.tzinfo is not None:
-        ts = ts.astimezone(ZoneInfo("America/New_York"))
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=ZoneInfo("UTC"))
+    ts = ts.astimezone(ZoneInfo("America/New_York"))
     time_text = ts.strftime("%I:%M:%S %p").lstrip("0")
     return f"### ⏰ TIME\n{time_text} ET"
 
@@ -64,13 +65,14 @@ def _format_flow_summary_lines(signal: Signal, include_pattern: bool = False) ->
 
     expiry_text = _format_expiry(event.expiry) if event.expiry is not None else "n/a"
     character = _flow_character(signal, include_pattern=include_pattern)
+    strike_side = f"{event.strike}{event.side[0]}" if event.side else f"{event.strike}"
 
     lines = [
         f"{event.contracts} contracts @ ${event.option_price:.2f}",
-        f"Strike {event.strike} exp {expiry_text}",
+        f"Strike {strike_side} | Exp {expiry_text}",
         f"Notional ${event.notional:,.0f}",
         _format_volume_oi(event),
-        f"Flow Character: {character if character else 'n/a'}",
+        f"Flow Character: **{character if character else 'n/a'}**",
     ]
     return lines
 
