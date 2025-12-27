@@ -114,69 +114,149 @@ flow_bot/
 config.yaml          # Default thresholds, tickers, routing placeholders
 ```
 
-## Sample Alert Outputs (current format)
+## Sample Alert Outputs (sectioned format)
 
 Below are example alerts using the current sectioned formatting with MM-DD-YYYY expiries and 12-hour ET timestamps.
 
 ### Scalp (short)
 
 ```
-⚡ SCALP CALL – TSLA (Strength 7.9/10)
-1000x @ $1.85 | Strike 245 exp 02-21-2025 | Notional $185,000 | Vol/OI 5000/2200 | SWEEP, AGGRESSIVE
+⚡ SCALP CALL – TSLA
+Strength: 7.9 / 10
 
-Flow Intent (intraday): aggressive CALL flow; size looks like new money; tags: SWEEP, AGGRESSIVE, VOL>OI.
-Price / Microstructure:
-  Underlying $243.40 | OTM 0.8% | DTE 1 | Above VWAP
-  Microstructure: pushing off VWAP; trend 1m/5m aligned; level pressure=yes.
+### 📊 FLOW SUMMARY (what happened)
+1000 contracts @ $1.85
+Strike 245C | Exp 02-21-2025
+Notional $185,000
+Volume / OI: 5000 / 2200
+Flow Character: SWEEP, AGGRESSIVE
 
-Why this matters:
-  sweep/aggression + VWAP/momentum alignment suggest tape control; favors a fast upside continuation instead of noise.
+---
+### 🎯 FLOW INTENT (intraday)
+Aggressive call buying with meaningful size that appears to be new positioning rather than noise.
 
-Risk & timing:
-  invalidate on VWAP or trigger loss; suited for a 5–20 min scalp with tight stops.
+---
+### 📈 PRICE & MICROSTRUCTURE
+- Underlying: $243.40
+- OTM: 0.8%
+- DTE: 1
+- VWAP: Above
+- Microstructure:
+  - pushing off VWAP
+  - 1m + 5m trends aligned
+  - pressure at key level = YES
 
-Regime: trend=UP vol=HIGH
-Time: 10:12:34 AM ET
+---
+### ✅ WHY THIS MATTERS
+Aggression + sweep behavior combined with VWAP alignment suggests strong tape control and favors fast continuation rather than chop.
+
+---
+### ⚠️ RISK & TIMING
+Loses edge if VWAP breaks or trigger level fails.
+Best suited for 5–20 minute intraday scalp.
+
+---
+### 🌡️ REGIME
+Trend: UP
+Volatility: HIGH
+
+---
+### ⏰ TIME
+10:12:34 AM ET
 ```
 
 ### Day Trade (medium)
 
 ```
-📈 DAY TRADE PUT – AMD (Strength 8.3/10)
-500x @ $2.40 | Strike 135 exp 03-14-2025 | Notional $120,000 | Vol/OI 12000/4500 | AGGRESSIVE
+📉 DAY TRADE PUT – AMD
+Strength: 8.3 / 10
 
-Flow Intent (session): assertive participation pressing the theme; vol vs OI 12000/4500; tags: AGGRESSIVE, VOL>OI, LEVEL_BREAK.
-Price / Structure:
-  Underlying $138.20 | OTM 1.3% | DTE 12 | Below VWAP | RVOL 1.8
-  VWAP/EMA: overhead/drag; 15m trend uncertain; key level=break/hold; RVOL=1.8.
+### 📊 FLOW SUMMARY
+500 contracts @ $2.40
+Strike 135P | Exp 03-14-2025
+Notional $120,000
+Volume / OI: 12000 / 4500
+Flow Character: AGGRESSIVE
 
-Why this is a good day-trade alert:
-  flow + intraday structure and regime point to sellers control; timing favors continuation movement rather than random noise.
+---
+### 🎯 FLOW INTENT (session)
+Assertive selling participation pressing the downside theme with strong volume expansion vs open interest.
 
-Risk & execution:
-  invalidate on VWAP/15m trend break or failed level retest; intraday idea (approx. 30–180 minutes if structure holds).
+---
+### 📈 PRICE & STRUCTURE
+- Underlying: $138.20
+- OTM: 1.3%
+- DTE: 12
+- VWAP: Below
+- RVOL: 1.8
+- Structure:
+  - VWAP + EMA overhead
+  - 15m trend uncertain
+  - price interacting with key break level
 
-Regime: trend=DOWN vol=ELEVATED
-Time: 11:05:12 AM ET
+---
+### ✅ WHY THIS IS A GOOD DAY-TRADE ALERT
+Flow, structure, and market regime indicate sellers currently control the narrative, increasing probability of continuation rather than random, one-off selling.
+
+---
+### ⚠️ RISK & EXECUTION
+Invalid if price reclaims VWAP, breaks the 15m trend upward, or fails to hold the level retest.
+Intended timeframe: 30–180 minutes assuming structure remains valid.
+
+---
+### 🌡️ REGIME
+Trend: DOWN
+Volatility: ELEVATED
+
+---
+### ⏰ TIME
+11:05:12 AM ET
 ```
 
 ### Swing (deep dive)
 
 ```
-🧠 SWING CALL – META (Strength 9.2/10)
-750x @ $9.40 | Strike 400 exp 04-18-2025 | Notional $6,300,000 | Vol/OI 20000/8000 | AGGRESSIVE, PERSISTENT_BUYER
+🧠 SWING CALL – META
+Strength: 9.2 / 10
 
-Flow Intent (swing): persistent flow; DTE/OTM consistent with positioning; tags: AGGRESSIVE, PERSISTENT_BUYER; Cluster notional ≈ $6,300,000.
-Price / Structure (HTF):
-  Underlying $384.20 | OTM 4.1% | DTE 35 | Above VWAP | RVOL 1.2
-  HTF posture: daily trend aligned; structure breakout/pullback; level posture=supportive; RVOL=1.2.
+### 📊 FLOW SUMMARY
+750 contracts @ $9.40
+Strike 400C | Exp 04-18-2025
+Total Notional: $6,300,000
+Volume / OI: 20000 / 8000
+Flow Character: AGGRESSIVE, PERSISTENT BUYER
 
-Why this is a good swing alert:
-  size + repetition at HTF structure implies institutional participation; aligns with the prevailing trend in current regime and supports an accumulation thesis rather than short-term noise.
+---
+### 🎯 FLOW INTENT (swing)
+Persistent upside call accumulation with maturity and distance consistent with deliberate swing positioning rather than short-term speculation.
 
-Risk & plan:
-  invalidate on break of recent swing pivot/HTF level; holding window on the order of days to weeks; informational context, not advice.
+---
+### 📈 PRICE & HTF STRUCTURE
+- Underlying: $384.20
+- OTM: 4.1%
+- DTE: 35
+- VWAP: Above
+- RVOL: 1.2
+- High Timeframe Posture:
+  - daily trend aligned
+  - breakout → pullback behavior
+  - key levels supportive
 
-Regime: trend=UP vol=MEDIUM
-Time: 01:18:45 PM ET
+---
+### ✅ WHY THIS IS A GOOD SWING ALERT
+Size, repetition, and location within the broader structure strongly imply institutional participation. Alignment with the prevailing trend makes the accumulation thesis much stronger than random flow.
+
+---
+### ⚠️ RISK & PLAN
+Invalid on break of recent swing pivot or failure of high timeframe structure.
+Intended holding window: days to weeks. Informational context only, not financial advice.
+
+---
+### 🌡️ REGIME
+Trend: UP
+Volatility: MEDIUM
+
+---
+### ⏰ TIME
+01:18:45 PM ET
 ```
