@@ -15,146 +15,62 @@ def _format_flow_summary(signal: Signal) -> str:
 
 
 def format_short_alert(signal: Signal) -> str:
-    """Format scalp-style short alerts using the shared reasoning pillars."""
+    """Format scalp-style short alerts."""
     event = signal.flow_events[0]
-    price_info = signal.context.get("price_info", {})
-    regime = signal.context.get("market_regime", {})
-
     header = f"⚡ SCALP {event.side} – {signal.ticker} (Strength {signal.strength:.1f}/10)"
     price_line = (
-        f"Underlying ${event.underlying_price:.2f} | OTM {price_info.get('otm_pct', 0):.1f}% | DTE {price_info.get('dte', '?')}"
+        f"Underlying ${event.underlying_price:.2f} | OTM {signal.context['price_info'].get('otm_pct', 0):.1f}%"
     )
-    flow_intent = (
-        "FLOW INTENT: fast tape showing {tags}; sizing suggests {size_bias} and a {aggression_bias} push."
-    ).format(
-        tags=", ".join(signal.tags) or "size/urgency",
-        size_bias="new money" if event.volume >= 2 * max(event.open_interest, 1) else "repositioning",
-        aggression_bias="decisive" if event.is_aggressive or event.is_sweep else "probing",
-    )
-    microstructure = (
-        "MICROSTRUCTURE: {vwap_side}; trend 1m/5m aligned? {trend}; level pressure={level_break}."
-    ).format(
-        vwap_side="above VWAP" if signal.context.get("above_vwap") else "near/under VWAP",
-        trend="up" if signal.context.get("trend_5m_up") else "mixed",
-        level_break="yes" if signal.context.get("breaking_level") else "no",
-    )
-    why_good = (
-        "WHY THIS ALERT MATTERS: timing + sweep/aggression suggest tape control; likely {path} continuation."
-    ).format(path="trend" if signal.context.get("trend_5m_up") else "liquidity grab")
-    risk = (
-        "RISK & EXECUTION: invalidation = loss of VWAP/trigger; expect fast move (mins); scalp with tight stops."
-    )
-
-    regime_line = f"Regime: trend={regime.get('trend', 'UNKNOWN')} vol={regime.get('volatility', 'UNKNOWN')}"
-
+    reasons = ", ".join(signal.tags)
+    regime = signal.context.get("market_regime", {})
+    regime_line = f"Regime: trend={regime.get('trend')} vol={regime.get('volatility')}"
     return "\n".join(
         [
             header,
             _format_flow_summary(signal),
             price_line,
-            flow_intent,
-            microstructure,
-            why_good,
-            risk,
+            f"Reasons: {reasons}",
             regime_line,
+            "Play: Quick momentum scalp. Manage tight stops.",
         ]
     )
 
 
 def format_medium_alert(signal: Signal) -> str:
-    """Format day-trade alerts with shared pillars and intraday structure."""
+    """Format day-trade alerts with more context."""
     event = signal.flow_events[0]
-    price_info = signal.context.get("price_info", {})
-    regime = signal.context.get("market_regime", {})
-
     header = f"📈 DAY TRADE {event.side} – {signal.ticker} (Strength {signal.strength:.1f}/10)"
-    price_line = (
-        f"Underlying ${event.underlying_price:.2f} | OTM {price_info.get('otm_pct', 0):.1f}% | DTE {price_info.get('dte', '?')}"
-    )
-    flow_intent = (
-        "FLOW INTENT: {tags} with {size_bias}; read as {aggression} participation pressing the intraday theme."
-    ).format(
-        tags=", ".join(signal.tags) or "size/velocity",
-        size_bias="fresh capital" if event.volume >= 2 * max(event.open_interest, 1) else "roll/reload",
-        aggression="assertive" if event.is_aggressive or event.is_sweep else "measured",
-    )
-    structure = (
-        "TECH + STRUCTURE: VWAP {vwap}; EMA stack/15m trend {trend}; level status={level_break}; RVOL={rvol:.1f}."
-    ).format(
-        vwap="support" if signal.context.get("above_vwap") else "overhead",
-        trend="aligned" if signal.context.get("trend_15m_up") else "uncertain",
-        level_break="break/hold" if signal.context.get("breaking_level") else "building base",
-        rvol=price_info.get("rvol", 1.0) if isinstance(price_info.get("rvol", 1.0), (int, float)) else 1.0,
-    )
-    why_good = (
-        "WHY THIS ALERT MATTERS: flow + structure show control by {side}; favors {bias} continuation rather than noise."
-    ).format(
-        side="buyers" if signal.direction == "BULLISH" else "sellers",
-        bias="trend" if signal.context.get("trend_15m_up") else "range expansion",
-    )
-    risk = (
-        "RISK & EXECUTION: invalidate on VWAP/15m trend break; expected hold = tens of minutes to hours; partial into strength."
-    )
-
-    regime_line = f"Regime: {regime.get('trend', 'UNKNOWN')} / {regime.get('volatility', 'UNKNOWN')}"
-
+    price_line = f"Underlying ${event.underlying_price:.2f} | Breakout level: {signal.context['price_info'].get('otm_pct', 0):.1f}% OTM"
+    reasons = ", ".join(signal.tags)
+    regime = signal.context.get("market_regime", {})
     return "\n".join(
         [
             header,
             _format_flow_summary(signal),
             price_line,
-            flow_intent,
-            structure,
-            why_good,
-            risk,
-            regime_line,
+            f"Context: {reasons}",
+            f"Regime: {regime.get('trend')} / {regime.get('volatility')}",
+            "Thesis: Ride intraday trend after level break; partials into strength.",
         ]
     )
 
 
 def format_deep_dive_alert(signal: Signal) -> str:
-    """Format swing alerts with the unified pillars at higher-timeframe depth."""
+    """Format swing alerts with extended context."""
     event = signal.flow_events[0]
+    header = f"🌀 SWING {event.side} – {signal.ticker} (Strength {signal.strength:.1f}/10)"
     price_info = signal.context.get("price_info", {})
+    reasons = ", ".join(signal.tags)
     regime = signal.context.get("market_regime", {})
-
-    header = f"🧠 SWING {event.side} – {signal.ticker} (Strength {signal.strength:.1f}/10)"
-    price_line = (
-        f"Underlying ${event.underlying_price:.2f} | OTM {price_info.get('otm_pct', 0):.1f}% | DTE {price_info.get('dte', '?')}"
-    )
-    flow_intent = (
-        "FLOW INTENT: {tags} with {size_bias}; pattern implies institutional accumulation/positioning rather than noise."
-    ).format(
-        tags=", ".join(signal.tags) or "size/urgency",
-        size_bias="persistent size" if price_info.get("persistent_notional", 0) else "measured entries",
-    )
-    structure = (
-        "TECH + STRUCTURE: daily trend {trend_daily}; VWAP/daily levels {vwap_side}; HTF structure {level_view}; RVOL={rvol:.1f}."
-    ).format(
-        trend_daily="aligned" if signal.context.get("trend_daily_up") else "mixed",
-        vwap_side="support" if signal.context.get("above_vwap") else "near supply",
-        level_view="breakout/pullback" if signal.context.get("breaking_level") else "accumulating near value",
-        rvol=price_info.get("rvol", 1.0) if isinstance(price_info.get("rvol", 1.0), (int, float)) else 1.0,
-    )
-    why_good = (
-        "WHY THIS ALERT MATTERS: flow aligns with higher-timeframe structure; suggests {path} advance with controlled risk."
-    ).format(path="trend" if signal.context.get("trend_daily_up") else "range expansion")
-    risk = (
-        "RISK & EXECUTION: invalidation at recent swing pivot/HTF level; expected hold = days/weeks; treat as structured swing thesis."
-    )
-
-    regime_line = f"Regime: {regime.get('trend', 'UNKNOWN')} / {regime.get('volatility', 'UNKNOWN')}"
-
     return "\n".join(
         [
             header,
             _format_flow_summary(signal),
-            price_line,
-            flow_intent,
-            structure,
-            why_good,
-            risk,
-            regime_line,
+            f"DTE: {price_info.get('dte')} | Persistent notional ${price_info.get('persistent_notional', 0):,.0f}",
+            f"Context: {reasons}",
+            f"Regime: {regime.get('trend')} / {regime.get('volatility')}",
+            "Thesis: Accumulation suggests swing opportunity. Define invalidation at recent swing level.",
+            "Plan: Scale in/out, respect stop based on structure.",
         ]
     )
 
