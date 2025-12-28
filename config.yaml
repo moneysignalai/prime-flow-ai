@@ -52,4 +52,6 @@ routing:
 provider:
   name: "massive"
   base_url: "https://api.massive.app"
-  live_flow_path: "/v1/flow/live"
+  # Massive option snapshot endpoint is used for live polling; path retained for
+  # compatibility but not used by default.
+  live_flow_path: "/v3/snapshot/options"

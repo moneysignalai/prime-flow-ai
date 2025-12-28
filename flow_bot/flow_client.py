@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import date, datetime, timedelta
-from typing import Iterator, List, Optional, Set
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Dict, Iterator, List, Optional, Set
 
 import requests
 
@@ -26,11 +26,6 @@ class FlowClient:
         api_keys = (config.get("api_keys") if isinstance(config, dict) else None) or load_api_keys()
         self.polygon_massive_key = api_keys.get("polygon_massive") if api_keys else None
 
-        if not self.polygon_massive_key:
-            raise RuntimeError(
-                "No flow provider API key set. Set POLYGON_MASSIVE_KEY (or POLYGON_API_KEY / MASSIVE_API_KEY)."
-            )
-
         flow_cfg = (config or {}).get("flow", {}) if isinstance(config, dict) else {}
         provider_cfg = (config or {}).get("provider", {}) if isinstance(config, dict) else {}
 
@@ -39,7 +34,8 @@ class FlowClient:
             provider_cfg.get("name") or flow_cfg.get("provider") or "massive"
         ).lower()
 
-        # Massive endpoint components are configurable to avoid hard-coded URLs.
+        # Massive endpoint components; live_flow_path retained for compatibility but
+        # not used for the option snapshot polling.
         self.massive_base_url: str = provider_cfg.get("base_url", "https://api.massive.app")
         self.massive_live_flow_path: str = provider_cfg.get("live_flow_path", "/v1/flow/live")
 
@@ -51,6 +47,13 @@ class FlowClient:
             self.massive_endpoint = self._build_massive_url()
         self.poll_interval: float = float(flow_cfg.get("poll_interval_seconds") or 3.0)
         self.use_stub: bool = bool(flow_cfg.get("use_stub"))
+
+        if not self.polygon_massive_key:
+            LOGGER.warning(
+                "No flow provider API key set. Set POLYGON_MASSIVE_KEY (or POLYGON_API_KEY / MASSIVE_API_KEY). "
+                "Falling back to stub flow generation."
+            )
+            self.use_stub = True
 
     def get_top_volume_tickers(self, limit: int = 500) -> list[str]:
         """
@@ -71,19 +74,36 @@ class FlowClient:
             yield from self._stream_stub_flows()
             return
 
-        if self.provider not in {"massive", "polygon"}:
-            LOGGER.warning("Unknown provider '%s'; falling back to stub", self.provider)
+        if not self.polygon_massive_key:
+            LOGGER.warning(
+                "No Massive/Polygon API key configured; falling back to stub live flow."
+            )
             yield from self._stream_stub_flows()
             return
 
-        LOGGER.info("Starting live flow polling via %s", self.provider)
+        poll_interval = int(
+            (self.cfg.get("general") or {}).get("poll_interval_seconds", self.poll_interval)
+        )
+
+        tickers_cfg = (self.cfg.get("tickers") or {}) if isinstance(self.cfg, dict) else {}
+        overrides = (tickers_cfg.get("overrides") or {}).keys()
+        universe: List[str] = list(overrides) or ["SPY", "QQQ", "TSLA"]
+
         seen_ids: Set[str] = set()
+
+        LOGGER.info(
+            "Starting Massive option-chain polling for live flow on %d tickers: %s",
+            len(universe),
+            ", ".join(universe),
+        )
+
         while True:
             try:
-                yield from self._poll_massive_flow(seen_ids)
+                yield from self._poll_massive_option_chain(universe, seen_ids)
             except Exception as exc:  # pragma: no cover - network path
                 LOGGER.exception("Live flow polling error: %s", exc)
-                time.sleep(self.poll_interval)
+
+            time.sleep(poll_interval)
 
     def fetch_historical_flow(
         self, start: datetime, end: datetime, tickers: list[str] | None = None
@@ -128,72 +148,111 @@ class FlowClient:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-    def _poll_massive_flow(self, seen_ids: Set[str]) -> Iterator[FlowEvent]:
-        """Poll Massive/Polygon REST flow endpoint and yield new events.
+    def _poll_massive_option_chain(
+        self, universe: List[str], seen_ids: Set[str]
+    ) -> Iterator[FlowEvent]:
+        """Poll Massive Option Chain Snapshot and yield new FlowEvents."""
 
-        This uses simple HTTP polling to avoid websocket dependencies. Providers
-        should return JSON records; unknown or malformed records are skipped
-        with a warning rather than crashing the live loop.
-        """
+        headers = {
+            "X-API-KEY": self.polygon_massive_key,
+            "Accept": "application/json",
+        }
+        base_url = "https://api.massive.app"
 
-        headers = {"Authorization": f"Bearer {self.polygon_massive_key}"}
-        params = {"limit": 200}
-        # Allow caller to restrict universe; otherwise provider default applies.
-        overrides = (self.cfg.get("tickers", {}) or {}).get("overrides", {})
-        tickers = list(overrides.keys()) if overrides else []
-        if tickers:
-            params["tickers"] = ",".join(tickers)
-
-        base_url = self.massive_base_url
-        live_flow_path = self.massive_live_flow_path
-        url = self._build_massive_url(base_url, live_flow_path)
-
-        try:
-            response = requests.get(url, headers=headers, params=params, timeout=10)
-            if response.status_code == 404:
-                LOGGER.error(
-                    "Massive live flow endpoint returned 404. Check provider.base_url (%s) and provider.live_flow_path (%s) in config.yaml.",
-                    base_url,
-                    live_flow_path,
+        for underlying in universe:
+            url = f"{base_url}/v3/snapshot/options/{underlying}"
+            try:
+                resp = requests.get(url, headers=headers, timeout=5)
+                if resp.status_code == 404:
+                    LOGGER.error(
+                        "Massive option-chain endpoint returned 404 for %s. "
+                        "Check plan/access or ticker spelling.",
+                        underlying,
+                    )
+                    continue
+                resp.raise_for_status()
+            except Exception as exc:
+                LOGGER.warning(
+                    "Error calling Massive snapshot for %s: %s", underlying, exc
                 )
-                if self.use_stub:
-                    LOGGER.warning("Falling back to stub flow due to 404 and use_stub=True")
-                    yield from self._stream_stub_flows()
-                time.sleep(self.poll_interval)
-                return
-
-            response.raise_for_status()
-        except requests.HTTPError as exc:
-            LOGGER.exception("Live flow polling HTTP error from Massive: %s", exc)
-            time.sleep(self.poll_interval)
-            return
-        except Exception as exc:  # pragma: no cover - defensive network path
-            LOGGER.exception("Unexpected error when polling Massive live flow: %s", exc)
-            time.sleep(self.poll_interval)
-            return
-        payload = response.json()
-        records = payload.get("data") if isinstance(payload, dict) else None
-        if records is None:
-            if isinstance(payload, list):
-                records = payload
-            else:
-                LOGGER.warning("Unexpected payload shape from provider: %s", type(payload))
-                return
-
-        for raw in records:
-            event = self._map_provider_event(raw)
-            if not event:
                 continue
-            event_id = self._event_identity(raw, event)
-            if event_id in seen_ids:
-                continue
-            seen_ids.add(event_id)
-            if len(seen_ids) > 2000:
-                # Trim to avoid unbounded growth
-                seen_ids.pop()
-            yield event
 
-        time.sleep(self.poll_interval)
+            payload: Dict[str, Any] = resp.json() or {}
+            results = payload.get("results") or []
+
+            for contract in results:
+                try:
+                    details = contract.get("details") or {}
+                    last_trade = contract.get("last_trade") or {}
+                    if not last_trade:
+                        continue
+
+                    option_ticker = details.get("ticker") or ""
+                    ts_ns = last_trade.get("sip_timestamp") or last_trade.get("t")
+                    if not option_ticker or not ts_ns:
+                        continue
+
+                    unique_id = f"{underlying}:{option_ticker}:{ts_ns}"
+                    if unique_id in seen_ids:
+                        continue
+                    seen_ids.add(unique_id)
+
+                    try:
+                        ts_sec = float(ts_ns) / 1e9
+                    except Exception:
+                        ts_sec = float(ts_ns) / 1000.0
+                    event_time = datetime.fromtimestamp(ts_sec, tz=timezone.utc)
+
+                    side = (details.get("contract_type") or "").upper()
+                    strike = float(details.get("strike_price") or 0.0)
+                    expiry_raw = details.get("expiration_date")
+                    expiry = (
+                        datetime.strptime(expiry_raw, "%Y-%m-%d").date()
+                        if expiry_raw
+                        else date.today()
+                    )
+
+                    option_price = float(last_trade.get("price") or 0.0)
+                    contracts = int(last_trade.get("size") or 0)
+                    notional = option_price * contracts * 100.0
+
+                    day = contract.get("day") or {}
+                    volume = int(day.get("volume") or 0)
+                    open_interest = int(contract.get("open_interest") or 0)
+                    iv_val = contract.get("implied_volatility")
+                    iv = float(iv_val) if iv_val is not None else None
+
+                    underlying_asset = contract.get("underlying_asset") or {}
+                    underlying_price = float(
+                        underlying_asset.get("price")
+                        or underlying_asset.get("last_price")
+                        or 0.0
+                    )
+
+                    event = FlowEvent(
+                        ticker=underlying,
+                        side=side,
+                        action="BUY",
+                        strike=strike,
+                        expiry=expiry,
+                        option_price=option_price,
+                        contracts=contracts,
+                        notional=notional,
+                        is_sweep=False,
+                        is_aggressive=False,
+                        volume=volume,
+                        open_interest=open_interest,
+                        iv=iv,
+                        underlying_price=underlying_price,
+                        event_time=event_time,
+                        raw=contract,
+                    )
+                    yield event
+                except Exception:
+                    LOGGER.exception(
+                        "Failed to normalize Massive snapshot contract for %s", underlying
+                    )
+                    continue
 
     def _build_massive_url(self, base_url: Optional[str] = None, live_flow_path: Optional[str] = None) -> str:
         """Construct the Massive live flow URL from config components."""
