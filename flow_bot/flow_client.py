@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import date, datetime, timedelta
-from typing import Iterator, List
+from typing import Iterator, List, Optional, Set
+
+import requests
 
 from .config import load_api_keys
 from .models import FlowEvent
@@ -24,9 +27,18 @@ class FlowClient:
         self.polygon_massive_key = api_keys.get("polygon_massive") if api_keys else None
 
         if not self.polygon_massive_key:
-            LOGGER.warning(
+            raise RuntimeError(
                 "No flow provider API key set. Set POLYGON_MASSIVE_KEY (or POLYGON_API_KEY / MASSIVE_API_KEY)."
             )
+
+        flow_cfg = (config or {}).get("flow", {}) if isinstance(config, dict) else {}
+        self.provider: str = str(flow_cfg.get("provider") or "massive").lower()
+        self.massive_endpoint: str = flow_cfg.get(
+            "massive_live_endpoint",
+            "https://api.massive.app/v1/flow/live",
+        )
+        self.poll_interval: float = float(flow_cfg.get("poll_interval_seconds") or 3.0)
+        self.use_stub: bool = bool(flow_cfg.get("use_stub"))
 
     def get_top_volume_tickers(self, limit: int = 500) -> list[str]:
         """
@@ -41,49 +53,25 @@ class FlowClient:
 
     def stream_live_flow(self) -> Iterator[FlowEvent]:
         """Yield FlowEvent objects in real time (infinite generator)."""
-        # TODO: implement real streaming using Polygon/Massive once available.
-        # Consider get_top_volume_tickers() to define dynamic universe.
-        LOGGER.warning(
-            "Live streaming not implemented; using stub flow generator for demo/testing."
-        )
 
-        sample_tickers = list(
-            (self.cfg.get("tickers", {}) or {}).get("overrides", {}).keys()
-        ) or ["SPY", "QQQ", "TSLA"]
+        if self.use_stub:
+            LOGGER.warning("Using stub flow generator (use_stub=True).")
+            yield from self._stream_stub_flows()
+            return
 
-        now = datetime.utcnow()
-        base_events: list[FlowEvent] = []
-        for idx, ticker in enumerate(sample_tickers[:3]):
-            # Synthetic contract/price sizing with mild variation per ticker.
-            contracts = 100 + idx * 50
-            option_price = 1.25 + 0.25 * idx
-            strike = 100 + 5 * idx
-            underlying = strike - 1.0
-            expiry = (now + timedelta(days=7 + 3 * idx)).date()
+        if self.provider not in {"massive", "polygon"}:
+            LOGGER.warning("Unknown provider '%s'; falling back to stub", self.provider)
+            yield from self._stream_stub_flows()
+            return
 
-            base_events.append(
-                FlowEvent(
-                    ticker=ticker,
-                    side="CALL" if idx % 2 == 0 else "PUT",
-                    action="BUY",
-                    strike=strike,
-                    expiry=expiry,
-                    option_price=option_price,
-                    contracts=contracts,
-                    notional=contracts * option_price * 100,
-                    is_sweep=True,
-                    is_aggressive=True,
-                    volume=5000 + idx * 1000,
-                    open_interest=2000 + idx * 500,
-                    iv=0.35 + 0.02 * idx,
-                    underlying_price=underlying,
-                    event_time=now + timedelta(seconds=idx),
-                    raw={"source": "stub_live"},
-                )
-            )
-
-        for event in base_events:
-            yield event
+        LOGGER.info("Starting live flow polling via %s", self.provider)
+        seen_ids: Set[str] = set()
+        while True:
+            try:
+                yield from self._poll_massive_flow(seen_ids)
+            except Exception as exc:  # pragma: no cover - network path
+                LOGGER.exception("Live flow polling error: %s", exc)
+                time.sleep(self.poll_interval)
 
     def fetch_historical_flow(
         self, start: datetime, end: datetime, tickers: list[str] | None = None
@@ -124,3 +112,173 @@ class FlowClient:
         # TODO: implement via Polygon historic quotes/aggregates.
         LOGGER.debug("Underlying price lookup stub for %s at %s", ticker, ts)
         return 100.0
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+    def _poll_massive_flow(self, seen_ids: Set[str]) -> Iterator[FlowEvent]:
+        """Poll Massive/Polygon REST flow endpoint and yield new events.
+
+        This uses simple HTTP polling to avoid websocket dependencies. Providers
+        should return JSON records; unknown or malformed records are skipped
+        with a warning rather than crashing the live loop.
+        """
+
+        headers = {"Authorization": f"Bearer {self.polygon_massive_key}"}
+        params = {"limit": 200}
+        # Allow caller to restrict universe; otherwise provider default applies.
+        overrides = (self.cfg.get("tickers", {}) or {}).get("overrides", {})
+        tickers = list(overrides.keys()) if overrides else []
+        if tickers:
+            params["tickers"] = ",".join(tickers)
+
+        response = requests.get(self.massive_endpoint, headers=headers, params=params, timeout=10)
+        response.raise_for_status()
+        payload = response.json()
+        records = payload.get("data") if isinstance(payload, dict) else None
+        if records is None:
+            if isinstance(payload, list):
+                records = payload
+            else:
+                LOGGER.warning("Unexpected payload shape from provider: %s", type(payload))
+                return
+
+        for raw in records:
+            event = self._map_provider_event(raw)
+            if not event:
+                continue
+            event_id = self._event_identity(raw, event)
+            if event_id in seen_ids:
+                continue
+            seen_ids.add(event_id)
+            if len(seen_ids) > 2000:
+                # Trim to avoid unbounded growth
+                seen_ids.pop()
+            yield event
+
+        time.sleep(self.poll_interval)
+
+    def _map_provider_event(self, raw: dict) -> Optional[FlowEvent]:
+        """Convert provider JSON dict to FlowEvent; return None on failure."""
+
+        try:
+            ticker = str(raw.get("ticker") or raw.get("underlying") or raw.get("symbol") or "").upper()
+            if not ticker:
+                return None
+
+            side_raw = str(raw.get("side") or raw.get("option_type") or raw.get("type") or "CALL").upper()
+            side = "CALL" if side_raw.startswith("C") else "PUT"
+
+            action_raw = str(raw.get("action") or raw.get("direction") or raw.get("trade_action") or "BUY").upper()
+            action = "BUY" if "S" not in action_raw else "SELL"
+
+            strike = float(raw.get("strike") or raw.get("strike_price") or raw.get("strikePrice") or 0.0)
+            expiry_raw = raw.get("expiry") or raw.get("expiration") or raw.get("expirationDate")
+            expiry = (
+                date.fromisoformat(str(expiry_raw).split("T")[0])
+                if expiry_raw
+                else (datetime.utcnow() + timedelta(days=7)).date()
+            )
+
+            option_price = float(raw.get("price") or raw.get("option_price") or raw.get("premium") or 0.0)
+            contracts = int(raw.get("contracts") or raw.get("size") or raw.get("qty") or raw.get("quantity") or 0)
+            notional = float(raw.get("notional") or (contracts * option_price * 100))
+
+            is_sweep = bool(raw.get("is_sweep") or raw.get("sweep") or raw.get("isSweep"))
+            is_aggressive = bool(
+                raw.get("is_aggressive")
+                or raw.get("aggressive")
+                or raw.get("isAggressive")
+                or raw.get("at_ask")
+                or raw.get("atAsk")
+            )
+
+            volume = int(raw.get("volume") or raw.get("trade_volume") or raw.get("tradeVolume") or contracts)
+            open_interest = int(raw.get("open_interest") or raw.get("openInterest") or raw.get("oi") or 0)
+            iv_val = raw.get("iv") or raw.get("implied_volatility") or raw.get("impliedVolatility")
+            iv = float(iv_val) if iv_val is not None else None
+
+            underlying_price = float(
+                raw.get("underlying_price")
+                or raw.get("underlyingPrice")
+                or raw.get("underlyingPriceLast")
+                or raw.get("underlying")
+                or strike
+            )
+
+            ts_raw = raw.get("timestamp") or raw.get("ts") or raw.get("event_time") or raw.get("time")
+            event_time = None
+            if isinstance(ts_raw, (int, float)):
+                event_time = datetime.utcfromtimestamp(ts_raw)
+            elif ts_raw:
+                try:
+                    event_time = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
+                except Exception:  # pragma: no cover - defensive
+                    event_time = datetime.utcnow()
+            else:
+                event_time = datetime.utcnow()
+
+            return FlowEvent(
+                ticker=ticker,
+                side=side,
+                action=action,
+                strike=strike,
+                expiry=expiry,
+                option_price=option_price,
+                contracts=contracts,
+                notional=notional,
+                is_sweep=is_sweep,
+                is_aggressive=is_aggressive,
+                volume=volume,
+                open_interest=open_interest,
+                iv=iv,
+                underlying_price=underlying_price,
+                event_time=event_time,
+                raw=raw,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            LOGGER.warning("Skipping malformed provider event: %s (err=%s)", raw, exc)
+            return None
+
+    def _event_identity(self, raw: dict, event: FlowEvent) -> str:
+        """Generate a dedup key for a raw provider event."""
+
+        return str(
+            raw.get("id")
+            or raw.get("uuid")
+            or f"{event.ticker}-{event.strike}-{event.expiry.isoformat()}-{event.contracts}-{int(event.event_time.timestamp())}"
+        )
+
+    def _stream_stub_flows(self) -> Iterator[FlowEvent]:
+        """Retained stub generator for diagnostics/testing environments."""
+
+        sample_tickers = list(
+            (self.cfg.get("tickers", {}) or {}).get("overrides", {}).keys()
+        ) or ["SPY", "QQQ", "TSLA"]
+
+        now = datetime.utcnow()
+        for idx, ticker in enumerate(sample_tickers[:3]):
+            contracts = 100 + idx * 50
+            option_price = 1.25 + 0.25 * idx
+            strike = 100 + 5 * idx
+            underlying = strike - 1.0
+            expiry = (now + timedelta(days=7 + 3 * idx)).date()
+
+            yield FlowEvent(
+                ticker=ticker,
+                side="CALL" if idx % 2 == 0 else "PUT",
+                action="BUY",
+                strike=strike,
+                expiry=expiry,
+                option_price=option_price,
+                contracts=contracts,
+                notional=contracts * option_price * 100,
+                is_sweep=True,
+                is_aggressive=True,
+                volume=5000 + idx * 1000,
+                open_interest=2000 + idx * 500,
+                iv=0.35 + 0.02 * idx,
+                underlying_price=underlying,
+                event_time=now + timedelta(seconds=idx),
+                raw={"source": "stub_live"},
+            )
