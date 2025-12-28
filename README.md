@@ -23,6 +23,14 @@ The default `config.yaml` covers experiment metadata, runtime limits, market reg
 - Merge per-ticker overrides and mode configs via `get_ticker_config(global_cfg, ticker, mode)`.
 - Environment secrets are centralized via `load_api_keys()`, reading `POLYGON_MASSIVE_KEY` (or legacy `POLYGON_API_KEY` / `MASSIVE_API_KEY`). `load_config()` injects keys under `config["api_keys"]` so every module uses one source of truth.
 
+### Environment variables
+
+Set these before running live or replay modes:
+
+- `POLYGON_MASSIVE_KEY` (preferred) or `POLYGON_API_KEY` / `MASSIVE_API_KEY` — provider credentials for Polygon/Massive data.
+- `TELEGRAM_BOT_TOKEN` — Telegram Bot API token used for all alerts.
+- `TELEGRAM_CHAT_ID_ALERTS` — the single Telegram chat ID that receives every alert (scalps/day-trades/swings/main).
+
 Example highlights:
 
 - `scalp.min_premium`, `day_trade.max_dte`, `swing.min_strength` control each strategy’s gates.

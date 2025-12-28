@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Iterator, List
 
 from .config import load_api_keys
@@ -24,7 +24,7 @@ class FlowClient:
         self.polygon_massive_key = api_keys.get("polygon_massive") if api_keys else None
 
         if not self.polygon_massive_key:
-            raise RuntimeError(
+            LOGGER.warning(
                 "No flow provider API key set. Set POLYGON_MASSIVE_KEY (or POLYGON_API_KEY / MASSIVE_API_KEY)."
             )
 
@@ -43,9 +43,47 @@ class FlowClient:
         """Yield FlowEvent objects in real time (infinite generator)."""
         # TODO: implement real streaming using Polygon/Massive once available.
         # Consider get_top_volume_tickers() to define dynamic universe.
-        raise NotImplementedError(
-            "Live streaming not implemented. Provide provider integration and volume screener."
+        LOGGER.warning(
+            "Live streaming not implemented; using stub flow generator for demo/testing."
         )
+
+        sample_tickers = list(
+            (self.cfg.get("tickers", {}) or {}).get("overrides", {}).keys()
+        ) or ["SPY", "QQQ", "TSLA"]
+
+        now = datetime.utcnow()
+        base_events: list[FlowEvent] = []
+        for idx, ticker in enumerate(sample_tickers[:3]):
+            # Synthetic contract/price sizing with mild variation per ticker.
+            contracts = 100 + idx * 50
+            option_price = 1.25 + 0.25 * idx
+            strike = 100 + 5 * idx
+            underlying = strike - 1.0
+            expiry = (now + timedelta(days=7 + 3 * idx)).date()
+
+            base_events.append(
+                FlowEvent(
+                    ticker=ticker,
+                    side="CALL" if idx % 2 == 0 else "PUT",
+                    action="BUY",
+                    strike=strike,
+                    expiry=expiry,
+                    option_price=option_price,
+                    contracts=contracts,
+                    notional=contracts * option_price * 100,
+                    is_sweep=True,
+                    is_aggressive=True,
+                    volume=5000 + idx * 1000,
+                    open_interest=2000 + idx * 500,
+                    iv=0.35 + 0.02 * idx,
+                    underlying_price=underlying,
+                    event_time=now + timedelta(seconds=idx),
+                    raw={"source": "stub_live"},
+                )
+            )
+
+        for event in base_events:
+            yield event
 
     def fetch_historical_flow(
         self, start: datetime, end: datetime, tickers: list[str] | None = None
@@ -57,9 +95,32 @@ class FlowClient:
             "Fetching historical flow (stub) from %s to %s for tickers: %s", start, end, tickers
         )
         # TODO: implement real historical fetch.
+        if tickers:
+            now = datetime.utcnow()
+            return [
+                FlowEvent(
+                    ticker=tickers[0],
+                    side="CALL",
+                    action="BUY",
+                    strike=100.0,
+                    expiry=(now + timedelta(days=14)).date(),
+                    option_price=2.5,
+                    contracts=50,
+                    notional=50 * 2.5 * 100,
+                    is_sweep=False,
+                    is_aggressive=True,
+                    volume=1000,
+                    open_interest=400,
+                    iv=0.4,
+                    underlying_price=99.0,
+                    event_time=start + timedelta(minutes=5),
+                    raw={"source": "stub_historical"},
+                )
+            ]
         return []
 
     def get_underlying_price_at(self, ticker: str, ts: datetime) -> float:
         """Return underlying price at a given timestamp (stub)."""
         # TODO: implement via Polygon historic quotes/aggregates.
-        raise NotImplementedError("Underlying price lookup not implemented")
+        LOGGER.debug("Underlying price lookup stub for %s at %s", ticker, ts)
+        return 100.0
