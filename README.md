@@ -17,7 +17,7 @@ Prime Flow AI is a rules-based, real-time institutional options flow intelligenc
 
 ## Configuration
 
-The default `config.yaml` covers experiment metadata, runtime limits, market regime thresholds, per-ticker overrides, strategy thresholds, and routing channel placeholders. Update webhook URLs and thresholds there; no secrets are hardcoded.
+The default `config.yaml` covers experiment metadata, runtime limits, market regime thresholds, per-ticker overrides, strategy thresholds, and routing channel mappings. Telegram chat IDs and bot tokens are pulled from environment variables; no secrets are hardcoded.
 
 - Load configuration with `load_config()` (defaults to `config.yaml`, or pass a custom path).
 - Merge per-ticker overrides and mode configs via `get_ticker_config(global_cfg, ticker, mode)`.
@@ -27,7 +27,7 @@ Example highlights:
 
 - `scalp.min_premium`, `day_trade.max_dte`, `swing.min_strength` control each strategy’s gates.
 - `tickers.overrides.TSLA.scalp.min_premium` demonstrates ticker-specific tuning.
-- `routing.channels.*` holds webhook placeholders for Telegram/Discord/etc.
+- `routing.channels.*` maps logical channels (scalps/swings/main) to the `TELEGRAM_CHAT_ID_ALERTS` environment variable so every alert lands in the same chat.
 
 ## Core Data Flow
 
@@ -35,7 +35,7 @@ Example highlights:
 2. **Context** – `ContextEngine` attaches VWAP/trend/RVOL and market regime metadata per event.
 3. **Strategies** – Each event is passed to `ScalpMomentumStrategy`, `DayTrendStrategy`, and `SwingAccumulationStrategy`, which apply rule filters and scoring.
 4. **Signals** – Valid strategies emit `Signal` objects containing tags, rules triggered, and context.
-5. **Alerting** – `routes.route_signal` picks alert mode/channel; `alerts.format_*` builds human-readable text; `routes.send_alert` is stubbed to POST/print (add real webhooks).
+5. **Alerting** – `routes.route_signal` picks alert mode/channel; `alerts.format_*` builds human-readable text; `routes.send_alert` forwards through the Telegram Bot API using `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID_ALERTS`.
 6. **Paper Trading & Logging** – `PaperTradingEngine` opens/updates paper positions; `SignalLogger` (and TODO paper-trade logger) append CSV rows; `Heartbeat` summarizes throughput.
 
 ### Universe selection (top-volume focus)
@@ -46,7 +46,7 @@ Example highlights:
 
 ### Live Mode
 
-`flow_bot/main_live.py` wires together the flow client, signal engine, logging, alert routing, paper trading, and heartbeat loop. Replace `FlowClient.stream_live_flow()` and `routes.send_alert()` with real integrations, then run:
+`flow_bot/main_live.py` wires together the flow client, signal engine, logging, alert routing, paper trading, and heartbeat loop. Provide `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID_ALERTS` env vars, replace `FlowClient.stream_live_flow()` with a real provider, then run:
 
 ```bash
 python -m flow_bot.main_live

@@ -45,6 +45,6 @@ swing:
 
 routing:
   channels:
-    telegram_scalps: "TELEGRAM_SCALPS_WEBHOOK_URL_PLACEHOLDER"
-    telegram_swings: "TELEGRAM_SWINGS_WEBHOOK_URL_PLACEHOLDER"
-    telegram_main:   "TELEGRAM_MAIN_WEBHOOK_URL_PLACEHOLDER"
+    telegram_scalps: "TELEGRAM_CHAT_ID_ALERTS"
+    telegram_swings: "TELEGRAM_CHAT_ID_ALERTS"
+    telegram_main:   "TELEGRAM_CHAT_ID_ALERTS"
