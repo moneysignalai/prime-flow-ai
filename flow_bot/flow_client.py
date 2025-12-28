@@ -32,11 +32,23 @@ class FlowClient:
             )
 
         flow_cfg = (config or {}).get("flow", {}) if isinstance(config, dict) else {}
-        self.provider: str = str(flow_cfg.get("provider") or "massive").lower()
-        self.massive_endpoint: str = flow_cfg.get(
-            "massive_live_endpoint",
-            "https://api.massive.app/v1/flow/live",
-        )
+        provider_cfg = (config or {}).get("provider", {}) if isinstance(config, dict) else {}
+
+        # Allow provider name to be configured via either flow.provider or provider.name
+        self.provider: str = str(
+            provider_cfg.get("name") or flow_cfg.get("provider") or "massive"
+        ).lower()
+
+        # Massive endpoint components are configurable to avoid hard-coded URLs.
+        self.massive_base_url: str = provider_cfg.get("base_url", "https://api.massive.app")
+        self.massive_live_flow_path: str = provider_cfg.get("live_flow_path", "/v1/flow/live")
+
+        # Backward compatibility: honor legacy flow.massive_live_endpoint if provided.
+        legacy_endpoint = flow_cfg.get("massive_live_endpoint")
+        if legacy_endpoint:
+            self.massive_endpoint = legacy_endpoint
+        else:
+            self.massive_endpoint = self._build_massive_url()
         self.poll_interval: float = float(flow_cfg.get("poll_interval_seconds") or 3.0)
         self.use_stub: bool = bool(flow_cfg.get("use_stub"))
 
@@ -132,8 +144,33 @@ class FlowClient:
         if tickers:
             params["tickers"] = ",".join(tickers)
 
-        response = requests.get(self.massive_endpoint, headers=headers, params=params, timeout=10)
-        response.raise_for_status()
+        base_url = self.massive_base_url
+        live_flow_path = self.massive_live_flow_path
+        url = self._build_massive_url(base_url, live_flow_path)
+
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=10)
+            if response.status_code == 404:
+                LOGGER.error(
+                    "Massive live flow endpoint returned 404. Check provider.base_url (%s) and provider.live_flow_path (%s) in config.yaml.",
+                    base_url,
+                    live_flow_path,
+                )
+                if self.use_stub:
+                    LOGGER.warning("Falling back to stub flow due to 404 and use_stub=True")
+                    yield from self._stream_stub_flows()
+                time.sleep(self.poll_interval)
+                return
+
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            LOGGER.exception("Live flow polling HTTP error from Massive: %s", exc)
+            time.sleep(self.poll_interval)
+            return
+        except Exception as exc:  # pragma: no cover - defensive network path
+            LOGGER.exception("Unexpected error when polling Massive live flow: %s", exc)
+            time.sleep(self.poll_interval)
+            return
         payload = response.json()
         records = payload.get("data") if isinstance(payload, dict) else None
         if records is None:
@@ -157,6 +194,13 @@ class FlowClient:
             yield event
 
         time.sleep(self.poll_interval)
+
+    def _build_massive_url(self, base_url: Optional[str] = None, live_flow_path: Optional[str] = None) -> str:
+        """Construct the Massive live flow URL from config components."""
+
+        base = (base_url or self.massive_base_url).rstrip("/")
+        path = (live_flow_path or self.massive_live_flow_path).lstrip("/")
+        return f"{base}/{path}"
 
     def _map_provider_event(self, raw: dict) -> Optional[FlowEvent]:
         """Convert provider JSON dict to FlowEvent; return None on failure."""

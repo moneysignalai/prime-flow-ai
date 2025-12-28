@@ -48,3 +48,8 @@ routing:
     telegram_scalps: "TELEGRAM_CHAT_ID_ALERTS"
     telegram_swings: "TELEGRAM_CHAT_ID_ALERTS"
     telegram_main:   "TELEGRAM_CHAT_ID_ALERTS"
+
+provider:
+  name: "massive"
+  base_url: "https://api.massive.app"
+  live_flow_path: "/v1/flow/live"
