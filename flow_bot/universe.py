@@ -83,7 +83,7 @@ def _try_fetch_top_volume(cfg: Dict, max_tickers: int, api_key: str) -> List[str
     resp = requests.get(url, params=params, timeout=10)
     resp.raise_for_status()
     payload = resp.json() or {}
-    results = payload.get("results") or []
+    results = payload.get("tickers") or []
 
     scored: List[Tuple[str, float, float]] = []
     for item in results:

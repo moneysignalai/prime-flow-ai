@@ -201,20 +201,25 @@ class FlowClient:
                 )
             except requests.HTTPError as exc:
                 status = exc.response.status_code if exc.response else "unknown"
-                LOGGER.error(
-                    "[API] ERROR: Massive request failed | Ticker: %s | Status: %s | Path: %s | Retrying in %.0fs",
-                    underlying,
-                    status,
-                    self.massive_option_chain_path,
-                    self.poll_interval,
-                )
+                if status == 404:
+                    LOGGER.warning(
+                        (
+                            "[API] 404 from Massive options snapshot | Ticker: %s | "
+                            "This may indicate plan/entitlement limits or unsupported ticker."
+                        ),
+                        underlying,
+                    )
+                else:
+                    LOGGER.error(
+                        "[API] ERROR: Massive request failed | Ticker: %s | Status: %s",
+                        underlying,
+                        status,
+                    )
                 continue
             except Exception as exc:
-                LOGGER.warning(
-                    "[API] ERROR: Massive snapshot call failed | Ticker: %s | Reason: %s | Retrying in %.0fs",
+                LOGGER.exception(
+                    "[API] Unexpected error when calling Massive options snapshot | Ticker: %s",
                     underlying,
-                    exc,
-                    self.poll_interval,
                 )
                 continue
 
@@ -289,7 +294,10 @@ class FlowClient:
                         raw=contract,
                     )
                     LOGGER.info(
-                        "[FLOW] New event detected | Ticker: %s | Type: %s %s | Strike: %s | Expiry: %s | Contracts: %s | Notional: $%.2f | Underlying: %.2f",
+                        (
+                            "[FLOW] New event detected | Ticker: %s | Side: %s | Action: %s | "
+                            "Strike: %.2f | Expiry: %s | Contracts: %d | Notional: $%.2f | Underlying: %.2f"
+                        ),
                         underlying,
                         side,
                         event.action,
