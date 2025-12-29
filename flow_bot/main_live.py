@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
 from .universe import resolve_universe
@@ -11,6 +12,7 @@ from .alerts import format_deep_dive_alert, format_medium_alert, format_short_al
 from .config import load_config
 from .flow_client import FlowClient
 from .heartbeat import Heartbeat
+from .logging_config import configure_logging
 from .logging_utils import SignalLogger
 from .paper_trading import PaperTradingEngine
 from .routes import route_signal, send_alert
@@ -61,7 +63,13 @@ def _log_startup_summary(cfg: dict, universe: list[str] | None = None) -> None:
 
 
 def main():
+    configure_logging()
     cfg = load_config()
+
+    LOGGER.info("================================================")
+    LOGGER.info(" Prime Flow AI live worker starting")
+    LOGGER.info(" Environment: %s", "Render" if os.getenv("RENDER") else "Local")
+    LOGGER.info("================================================")
     universe = resolve_universe(cfg, max_tickers=int((cfg.get("universe") or {}).get("max_tickers") or 500))
     _log_startup_summary(cfg, universe)
 
@@ -70,8 +78,8 @@ def main():
     logger = SignalLogger()
     paper_engine = PaperTradingEngine(cfg)
     hb = Heartbeat()
-    last_heartbeat_log = datetime.now(timezone.utc)
-    heartbeat_interval = timedelta(seconds=60)
+    last_heartbeat_log = time.monotonic()
+    heartbeat_interval_seconds = 60.0
 
     try:
         for event in client.stream_live_flow():
@@ -96,16 +104,20 @@ def main():
 
                 send_alert(route, text, cfg)
 
-            if datetime.now(timezone.utc) - last_heartbeat_log >= heartbeat_interval:
-                snapshot = hb.snapshot()
+            now_monotonic = time.monotonic()
+            if now_monotonic - last_heartbeat_log >= heartbeat_interval_seconds:
                 LOGGER.info(
-                    "[HEARTBEAT] Bot Healthy | Universe Size: %s | Events processed: %s | Signals: %s",
-                    len(universe),
+                    (
+                        "[HEARTBEAT] Bot alive | Universe Size: %s | Poll Interval: %.2fs | "
+                        "Events: %s | Signals: %s"
+                    ),
+                    getattr(client, "universe_size", len(universe)),
+                    getattr(client, "poll_interval", -1.0),
                     hb.events_processed,
                     hb.signals_generated,
                 )
-                LOGGER.debug(snapshot)
-                last_heartbeat_log = datetime.now(timezone.utc)
+                LOGGER.debug(hb.snapshot())
+                last_heartbeat_log = now_monotonic
 
             # TODO: periodically update paper positions with latest prices
             # TODO: periodically send heartbeat snapshot

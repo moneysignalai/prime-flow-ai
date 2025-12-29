@@ -116,6 +116,7 @@ class FlowClient:
         universe_cfg = (self.cfg.get("universe") or {}) if isinstance(self.cfg, dict) else {}
         max_tickers = int(universe_cfg.get("max_tickers") or 500)
         universe: List[str] = resolve_universe(self.cfg or {}, max_tickers=max_tickers)
+        self.universe_size = len(universe)
 
         seen_ids: Set[str] = set()
 
