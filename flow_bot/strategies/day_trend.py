@@ -29,13 +29,16 @@ class DayTrendStrategy(Strategy):
         if otm_pct > mode_cfg.get("max_otm_pct", 100):
             return None
 
+        call_put = (event.call_put or event.raw.get("call_put") or "CALL").upper()
+        order_side = (event.side or event.action or "BUY").upper()
+
         trend_15m_up = bool(context.get("trend_15m_up"))
-        if event.side == "CALL":
+        if call_put == "CALL":
             trend_aligned = trend_15m_up
-            direction = "BULLISH"
+            direction = "BULLISH" if order_side != "SELL" else "BEARISH"
         else:
             trend_aligned = not trend_15m_up
-            direction = "BEARISH"
+            direction = "BEARISH" if order_side != "SELL" else "BULLISH"
 
         breaking_level = context.get("breaking_level")
         if breaking_level is None:
@@ -63,7 +66,6 @@ class DayTrendStrategy(Strategy):
             rules.append("breaking_level")
         rules.append("day_trade_filters_passed")
 
-        kind = "DAY_CALL" if event.side == "CALL" else "DAY_PUT"
         price_info = {
             "otm_pct": otm_pct,
             "dte": dte,
@@ -71,11 +73,15 @@ class DayTrendStrategy(Strategy):
             "underlying_price": event.underlying_price,
         }
 
+        time_min = int(mode_cfg.get("time_horizon_min", 30))
+        time_max = int(mode_cfg.get("time_horizon_max", 180))
+
         return Signal(
             id=str(uuid4()),
             ticker=event.ticker,
-            kind=kind,
+            kind="DAY_TRADE",
             direction=direction,
+            style="day",
             strength=strength,
             tags=tags,
             flow_events=[event],
@@ -84,7 +90,12 @@ class DayTrendStrategy(Strategy):
                 "rules_triggered": rules,
                 "market_regime": market_regime,
                 "price_info": price_info,
+                "mode": "day",
             },
             created_at=event.event_time,
             experiment_id=global_cfg.get("experiment_id", "unknown"),
+            time_horizon_min=time_min,
+            time_horizon_max=time_max,
+            tp_pct=mode_cfg.get("tp_pct"),
+            sl_pct=mode_cfg.get("sl_pct"),
         )

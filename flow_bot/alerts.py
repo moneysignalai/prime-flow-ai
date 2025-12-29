@@ -179,7 +179,7 @@ def _order_structure(event) -> str:
 
 def _flow_summary_block(signal: Signal, include_pattern: bool = False) -> List[str]:
     event = _first_event(signal)
-    side = event.side if event else "CALL/PUT"
+    side = (event.call_put or event.side) if event else "CALL/PUT"
     strike = event.strike if event else 0.0
     expiry = _format_expiry(event.expiry) if event and event.expiry else "n/a"
     notional = _format_money(event.notional if event else 0)
@@ -280,7 +280,7 @@ def _risk_block(title: str, lines: List[str]) -> List[str]:
 
 def format_short_alert(signal: Signal) -> str:
     event = _first_event(signal)
-    side = event.side if event else "CALL/PUT"
+    side = (event.call_put or event.side) if event else "CALL/PUT"
     cluster_count, cluster_window, cluster_premium = _cluster_info(signal)
     lines: List[str] = [
         f"⚡ SCALP {side} — {signal.ticker}",
@@ -316,7 +316,7 @@ def format_short_alert(signal: Signal) -> str:
 
 def format_medium_alert(signal: Signal) -> str:
     event = _first_event(signal)
-    side = event.side if event else "CALL/PUT"
+    side = (event.call_put or event.side) if event else "CALL/PUT"
     buyer_seller = "buyers" if signal.direction.upper() == "BULLISH" else "sellers"
     lines: List[str] = [
         f"📅 DAY TRADE {side} — {signal.ticker}",
@@ -355,7 +355,7 @@ def format_medium_alert(signal: Signal) -> str:
 
 def format_deep_dive_alert(signal: Signal) -> str:
     event = _first_event(signal)
-    side = event.side if event else "CALL/PUT"
+    side = (event.call_put or event.side) if event else "CALL/PUT"
     lines: List[str] = [
         f"⏳ SWING {side} — {signal.ticker}",
         f"⭐ Strength: {signal.strength:.1f} / 10",

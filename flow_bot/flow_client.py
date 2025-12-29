@@ -149,20 +149,28 @@ class FlowClient:
             return [
                 FlowEvent(
                     ticker=tickers[0],
-                    side="CALL",
+                    call_put="CALL",
+                    side="BUY",
                     action="BUY",
                     strike=100.0,
                     expiry=(now + timedelta(days=14)).date(),
                     option_price=2.5,
                     contracts=50,
                     notional=50 * 2.5 * 100,
-                    is_sweep=False,
-                    is_aggressive=True,
                     volume=1000,
                     open_interest=400,
-                    iv=0.4,
                     underlying_price=99.0,
+                    trade_time=start + timedelta(minutes=5),
                     event_time=start + timedelta(minutes=5),
+                    exchange="",
+                    is_sweep=False,
+                    is_block=False,
+                    is_aggressive=True,
+                    is_multi_leg=False,
+                    iv=0.4,
+                    delta=None,
+                    bid=None,
+                    ask=None,
                     raw={"source": "stub_historical"},
                 )
             ]
@@ -250,7 +258,7 @@ class FlowClient:
                         ts_sec = float(ts_ns) / 1000.0
                     event_time = datetime.fromtimestamp(ts_sec, tz=timezone.utc)
 
-                    side = (details.get("contract_type") or "").upper()
+                    call_put = (details.get("contract_type") or "").upper()
                     strike = float(details.get("strike_price") or 0.0)
                     expiry_raw = details.get("expiration_date")
                     expiry = (
@@ -262,6 +270,11 @@ class FlowClient:
                     option_price = float(last_trade.get("price") or 0.0)
                     contracts = int(last_trade.get("size") or 0)
                     notional = option_price * contracts * 100.0
+
+                    bid_val = last_trade.get("bid") or last_trade.get("bid_price")
+                    ask_val = last_trade.get("ask") or last_trade.get("ask_price")
+                    bid = float(bid_val) if bid_val is not None else None
+                    ask = float(ask_val) if ask_val is not None else None
 
                     day = contract.get("day") or {}
                     volume = int(day.get("volume") or 0)
@@ -276,22 +289,38 @@ class FlowClient:
                         or 0.0
                     )
 
+                    exchange = str(
+                        details.get("exchange")
+                        or contract.get("exchange")
+                        or last_trade.get("exchange")
+                        or ""
+                    )
+                    order_side = str(last_trade.get("side") or "BUY").upper()
+
                     event = FlowEvent(
                         ticker=underlying,
-                        side=side,
-                        action="BUY",
+                        call_put=call_put,
+                        side=order_side,
+                        action=order_side,
                         strike=strike,
                         expiry=expiry,
                         option_price=option_price,
                         contracts=contracts,
                         notional=notional,
-                        is_sweep=False,
-                        is_aggressive=False,
                         volume=volume,
                         open_interest=open_interest,
-                        iv=iv,
                         underlying_price=underlying_price,
+                        trade_time=event_time,
                         event_time=event_time,
+                        exchange=exchange,
+                        is_sweep=False,
+                        is_block=bool(contract.get("is_block") or contract.get("block_trade")),
+                        is_aggressive=False,
+                        is_multi_leg=bool(contract.get("is_multi_leg") or contract.get("multi_leg")),
+                        iv=iv,
+                        delta=None,
+                        bid=bid,
+                        ask=ask,
                         raw=contract,
                     )
                     LOGGER.info(
@@ -300,7 +329,7 @@ class FlowClient:
                             "Strike: %.2f | Expiry: %s | Contracts: %d | Notional: $%.2f | Underlying: %.2f"
                         ),
                         underlying,
-                        side,
+                        call_put,
                         event.action,
                         strike,
                         expiry.isoformat(),
@@ -331,7 +360,7 @@ class FlowClient:
                 return None
 
             side_raw = str(raw.get("side") or raw.get("option_type") or raw.get("type") or "CALL").upper()
-            side = "CALL" if side_raw.startswith("C") else "PUT"
+            call_put = "CALL" if side_raw.startswith("C") else "PUT"
 
             action_raw = str(raw.get("action") or raw.get("direction") or raw.get("trade_action") or "BUY").upper()
             action = "BUY" if "S" not in action_raw else "SELL"
@@ -370,6 +399,11 @@ class FlowClient:
                 or strike
             )
 
+            bid_val = raw.get("bid") or raw.get("bid_price")
+            ask_val = raw.get("ask") or raw.get("ask_price")
+            bid = float(bid_val) if bid_val is not None else None
+            ask = float(ask_val) if ask_val is not None else None
+
             ts_raw = raw.get("timestamp") or raw.get("ts") or raw.get("event_time") or raw.get("time")
             event_time = None
             if isinstance(ts_raw, (int, float)):
@@ -384,20 +418,28 @@ class FlowClient:
 
             return FlowEvent(
                 ticker=ticker,
-                side=side,
+                call_put=call_put,
+                side=action,
                 action=action,
                 strike=strike,
                 expiry=expiry,
                 option_price=option_price,
                 contracts=contracts,
                 notional=notional,
-                is_sweep=is_sweep,
-                is_aggressive=is_aggressive,
                 volume=volume,
                 open_interest=open_interest,
-                iv=iv,
                 underlying_price=underlying_price,
+                trade_time=event_time,
                 event_time=event_time,
+                exchange=str(raw.get("exchange") or ""),
+                is_sweep=is_sweep,
+                is_block=bool(raw.get("is_block") or raw.get("block_trade")),
+                is_aggressive=is_aggressive,
+                is_multi_leg=bool(raw.get("is_multi_leg") or raw.get("multi_leg")),
+                iv=iv,
+                delta=float(raw.get("delta")) if raw.get("delta") is not None else None,
+                bid=bid,
+                ask=ask,
                 raw=raw,
             )
         except Exception as exc:  # pragma: no cover - defensive
@@ -430,19 +472,27 @@ class FlowClient:
 
             yield FlowEvent(
                 ticker=ticker,
-                side="CALL" if idx % 2 == 0 else "PUT",
+                call_put="CALL" if idx % 2 == 0 else "PUT",
+                side="BUY",
                 action="BUY",
                 strike=strike,
                 expiry=expiry,
                 option_price=option_price,
                 contracts=contracts,
                 notional=contracts * option_price * 100,
-                is_sweep=True,
-                is_aggressive=True,
                 volume=5000 + idx * 1000,
                 open_interest=2000 + idx * 500,
-                iv=0.35 + 0.02 * idx,
                 underlying_price=underlying,
+                trade_time=now + timedelta(seconds=idx),
                 event_time=now + timedelta(seconds=idx),
+                exchange="",
+                is_sweep=True,
+                is_block=False,
+                is_aggressive=True,
+                is_multi_leg=False,
+                iv=0.35 + 0.02 * idx,
+                delta=None,
+                bid=None,
+                ask=None,
                 raw={"source": "stub_live"},
             )
