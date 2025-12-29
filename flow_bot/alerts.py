@@ -192,6 +192,51 @@ def _fmt_vol_regime(signal: Signal) -> str:
     return "Normal"
 
 
+def _build_tldr(signal: Signal, event: FlowEvent) -> str:
+    """Construct a one-line TL;DR summary for quick scanning."""
+
+    direction = (signal.direction or "").upper()
+    if direction == "BULLISH":
+        dir_word = "bullish"
+    elif direction == "BEARISH":
+        dir_word = "bearish"
+    else:
+        dir_word = "directional"
+
+    kind = (signal.kind or "").upper()
+    if kind == "SCALP":
+        horizon = "very short-term move"
+    elif kind == "DAY_TRADE":
+        horizon = "intraday move"
+    elif kind == "SWING":
+        horizon = "multi-day move"
+    else:
+        horizon = "short-term move"
+
+    dte_phrase = "over the coming weeks"
+    if event:
+        try:
+            dte_days_str = _fmt_dte(event).split()[0]
+            dte_days = int(dte_days_str) if dte_days_str.isdigit() else None
+            if dte_days is not None:
+                if dte_days <= 2:
+                    dte_phrase = "this week"
+                elif dte_days <= 10:
+                    dte_phrase = "in the near term"
+        except Exception:
+            pass
+
+    ticker = event.ticker if event and event.ticker else (signal.ticker or "ticker")
+    call_put_word = "option"
+    if event and event.call_put:
+        call_put_word = event.call_put.lower()
+
+    return (
+        f"🧾 TL;DR: {dir_word.capitalize()} {call_put_word} flow in {ticker} targeting a {horizon}"
+        f" {dte_phrase} with notable size."
+    )
+
+
 def _fmt_rvol(signal: Signal) -> str:
     info = _ctx_price(signal)
     val = info.get("rvol") or _ctx(signal, "rvol")
@@ -259,6 +304,35 @@ def _infer_execution_quality(signal: Signal, event: FlowEvent) -> str:
     return "Standard"
 
 
+def _why_this_matters_line(signal: Signal, event: FlowEvent, mode: str) -> str:
+    """Return a mode-aware rationale line that respects aggressiveness."""
+
+    aggressive = False
+    override = _ctx(signal, "execution_quality")
+    if isinstance(override, str) and "aggressive" in override.lower():
+        aggressive = True
+    elif event and event.is_aggressive:
+        aggressive = True
+
+    mode_lower = mode.lower()
+    if mode_lower == "scalp":
+        if aggressive:
+            return (
+                "Aggressive, short-dated flow aligned with intraday structure suggests a fast move setup, not random noise."
+            )
+        return "Short-dated flow aligned with intraday structure highlights a potential tactical move rather than random noise."
+
+    if mode_lower == "day":
+        if aggressive:
+            return "Persistent aggressive flow plus structure shows intraday control by larger participants."
+        return "Flow and structure together point to controlled intraday participation, not just a one-off print."
+
+    # swing
+    if aggressive:
+        return "Size, repetition, and timing signal institutional swing positioning rather than random activity."
+    return "Size, repetition, and structure are consistent with institutional swing positioning, not just scattered flow."
+
+
 def _order_structure(signal: Signal, event: FlowEvent) -> str:
     return _ctx(signal, "order_structure") or (
         "Sweep" if event and event.is_sweep else "Block" if event and event.is_block else "Standard"
@@ -278,11 +352,7 @@ def _cluster_fields(signal: Signal, event: FlowEvent):
         cluster_window_min = 0
     if cluster_premium is None:
         cluster_premium = event.notional if event else None
-
-    cluster_trades_str = str(cluster_trades)
-    cluster_window_str = str(cluster_window_min)
-    cluster_premium_str = _fmt_money(cluster_premium)
-    return cluster_trades_str, cluster_window_str, cluster_premium_str
+    return cluster_trades, cluster_window_min, cluster_premium
 
 
 def _micro_points(signal: Signal) -> List[str]:
@@ -367,7 +437,10 @@ def format_scalp_alert(signal: Signal) -> str:
     dte = _fmt_dte(event)
     underlying = _fmt_underlying(signal, event)
 
-    cluster_trades_str, cluster_window_str, cluster_premium_str = _cluster_fields(signal, event)
+    cluster_trades, cluster_window_min, cluster_premium = _cluster_fields(signal, event)
+    cluster_label = "single print" if cluster_trades == 1 else f"{cluster_trades} trades"
+    cluster_window_str = str(cluster_window_min)
+    cluster_premium_str = _fmt_money(cluster_premium)
 
     exec_quality = _infer_execution_quality(signal, event)
     order_structure = _order_structure(signal, event)
@@ -376,9 +449,21 @@ def format_scalp_alert(signal: Signal) -> str:
     scalp_max = signal.time_horizon_max or SCALP_MINUTES[1]
     bad = _bad_move_emoji(signal)
 
+    tldr = _build_tldr(signal, event)
+    why_line = _why_this_matters_line(signal, event, mode="scalp")
+
+    tp = signal.tp_pct
+    sl = signal.sl_pct
+    tp_str = f"{tp*100:.1f}%" if tp is not None else None
+    sl_str = f"{sl*100:.1f}%" if sl is not None else None
+    risk_ref_line = ""
+    if tp_str or sl_str:
+        risk_ref_line = f"• 🎯 Reference move: TP ~ +{tp_str or '?'} , SL ~ -{sl_str or '?'}\n"
+
     text = (
         f"⚡ SCALP {call_or_put} — {ticker}\n"
-        f"⭐ Strength: {strength} / 10\n\n"
+        f"⭐ Strength: {strength} / 10\n"
+        f"{tldr}\n\n"
         f"📡 FLOW SUMMARY\n"
         f"• 🧾 {contract_size} contracts @ ${avg_price}\n"
         f"• 🎯 Strike {strike}{call_or_put[0]} | ⏰ Exp {expiry_str}\n"
@@ -388,7 +473,7 @@ def format_scalp_alert(signal: Signal) -> str:
         f"🎯 EXECUTION & BEHAVIOR\n"
         f"• 🎯 Execution: {exec_quality}\n"
         f"• 🛰 Structure: {order_structure}\n"
-        f"• 🔁 Cluster: {cluster_trades_str} trades in {cluster_window_str} min\n"
+        f"• 🔁 Cluster: {cluster_label} in {cluster_window_str} min\n"
         f"• 💵 Cluster Premium: ${cluster_premium_str}\n\n"
         f"📈 PRICE & MICROSTRUCTURE\n"
         f"• 💵 Underlying: ${underlying}\n"
@@ -406,6 +491,7 @@ def format_scalp_alert(signal: Signal) -> str:
         f"❌ Invalid if:\n"
         f"• {bad} VWAP breaks against the trade\n"
         f"• 🔄 Trend flips against the trade\n"
+        f"{risk_ref_line}"
         f"⏱ Best suited for: {scalp_min}–{scalp_max} min scalp window\n\n"
         f"📊 REGIME\n"
         f"• 📈 Trend: {trend_direction}\n"
@@ -441,7 +527,10 @@ def format_day_trade_alert(signal: Signal) -> str:
     dte = _fmt_dte(event)
     underlying = _fmt_underlying(signal, event)
 
-    cluster_trades_str, cluster_window_str, cluster_premium_str = _cluster_fields(signal, event)
+    cluster_trades, cluster_window_min, cluster_premium = _cluster_fields(signal, event)
+    cluster_label = "single print" if cluster_trades == 1 else f"{cluster_trades} trades"
+    cluster_window_str = str(cluster_window_min)
+    cluster_premium_str = _fmt_money(cluster_premium)
 
     exec_quality = _infer_execution_quality(signal, event)
     order_structure = _order_structure(signal, event)
@@ -453,9 +542,21 @@ def format_day_trade_alert(signal: Signal) -> str:
     direction_word = signal.direction.capitalize() if signal.direction else "Directional"
     buyers_or_sellers = "buyers" if direction_word.lower() == "bullish" else "sellers"
 
+    tldr = _build_tldr(signal, event)
+    why_line = _why_this_matters_line(signal, event, mode="day")
+
+    tp = signal.tp_pct
+    sl = signal.sl_pct
+    tp_str = f"{tp*100:.1f}%" if tp is not None else None
+    sl_str = f"{sl*100:.1f}%" if sl is not None else None
+    risk_ref_line = ""
+    if tp_str or sl_str:
+        risk_ref_line = f"• 🎯 Reference move: TP ~ +{tp_str or '?'} , SL ~ -{sl_str or '?'}\n"
+
     text = (
         f"📅 DAY TRADE {call_or_put} — {ticker}\n"
-        f"⭐ Strength: {strength} / 10\n\n"
+        f"⭐ Strength: {strength} / 10\n"
+        f"{tldr}\n\n"
         f"📡 FLOW SUMMARY\n"
         f"• 🧾 {contract_size} contracts @ ${avg_price}\n"
         f"• 🎯 Strike {strike}{call_or_put[0]} | ⏰ Exp {expiry_str}\n"
@@ -474,15 +575,16 @@ def format_day_trade_alert(signal: Signal) -> str:
         f"  – {_structure_points(signal)[0][3:]}\n"
         f"  – {_structure_points(signal)[1][3:]}\n"
         f"  – {_structure_points(signal)[2][3:]}\n"
-        f"  – Cluster: {cluster_trades_str} trades in {cluster_window_str} min\n"
+        f"  – Cluster: {cluster_label} in {cluster_window_str} min\n"
         f"  – Cluster Premium: ${cluster_premium_str}\n\n"
         f"💡 WHY THIS IS DAY-TRADE QUALITY\n"
-        f"Flow + structure + regime show session control by {buyers_or_sellers}.\n\n"
+        f"{why_line}\n\n"
         f"⚠️ RISK & EXECUTION\n"
         f"❌ Invalid if:\n"
         f"• {bad} VWAP moves against the trade\n"
         f"• 🔄 15m trend flips against the trade\n"
         f"• ❌ Breakout retest fails\n"
+        f"{risk_ref_line}"
         f"⏱ Expected window: {day_min}–{day_max} min\n\n"
         f"📊 REGIME\n"
         f"• 📈 Trend: {trend_direction}\n"
@@ -522,9 +624,21 @@ def format_swing_alert(signal: Signal) -> str:
     swing_max = signal.time_horizon_days_max or SWING_DAYS[1]
     bad = _bad_move_emoji(signal)
 
+    tldr = _build_tldr(signal, event)
+    why_line = _why_this_matters_line(signal, event, mode="swing")
+
+    tp = signal.tp_pct
+    sl = signal.sl_pct
+    tp_str = f"{tp*100:.1f}%" if tp is not None else None
+    sl_str = f"{sl*100:.1f}%" if sl is not None else None
+    risk_ref_line = ""
+    if tp_str or sl_str:
+        risk_ref_line = f"• 🎯 Reference move: TP ~ +{tp_str or '?'} , SL ~ -{sl_str or '?'}\n"
+
     text = (
         f"⏳ SWING {call_or_put} — {ticker}\n"
-        f"⭐ Strength: {strength} / 10\n\n"
+        f"⭐ Strength: {strength} / 10\n"
+        f"{tldr}\n\n"
         f"📡 FLOW SUMMARY\n"
         f"• 🧾 {contract_size} contracts @ ${avg_price}\n"
         f"• 🎯 Strike {strike}{call_or_put[0]} | ⏰ Exp {expiry_str}\n"
@@ -545,11 +659,12 @@ def format_swing_alert(signal: Signal) -> str:
         f"  – {_htf_points(signal)[1][3:]}\n"
         f"  – {_htf_points(signal)[2][3:]}\n\n"
         f"🏦 INSTITUTIONAL READ\n"
-        f"Size, repetition, and structure strongly suggest non-retail accumulation.\n\n"
+        f"{why_line}\n\n"
         f"⚠️ RISK & PLAN\n"
         f"❌ Invalid if:\n"
         f"• {bad} key swing pivot breaks against the trade\n"
         f"• 🔄 Higher timeframe trend reverses against the trade\n"
+        f"{risk_ref_line}"
         f"⏳ Expected holding: {swing_min}–{swing_max} days\n"
         f"(Informational only — not financial advice)\n\n"
         f"📊 REGIME\n"
