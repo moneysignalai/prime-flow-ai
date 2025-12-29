@@ -26,12 +26,12 @@ class SwingAccumulationStrategy(Strategy):
         dte = (event.expiry - event.event_time.date()).days
         if dte < mode_cfg.get("min_dte", 0) or dte > mode_cfg.get("max_dte", 10**6):
             return None
-        if event.notional < mode_cfg.get("min_premium", 0):
+        if event.notional < mode_cfg.get("min_notional", 0):
             return None
 
         key = (event.ticker, event.strike, event.expiry, (event.call_put or event.raw.get("call_put") or "CALL"))
         self.chain_totals[key] = self.chain_totals.get(key, 0.0) + event.notional
-        persistent_buyer = self.chain_totals[key] >= mode_cfg.get("min_premium", 0) * 3
+        persistent_buyer = self.chain_totals[key] >= mode_cfg.get("min_notional", 0) * 3
 
         call_put = (event.call_put or event.raw.get("call_put") or "CALL").upper()
         order_side = (event.side or event.action or "BUY").upper()

@@ -22,7 +22,7 @@ class DayTrendStrategy(Strategy):
         dte = (event.expiry - event.event_time.date()).days
         if dte > mode_cfg.get("max_dte", 10):
             return None
-        if event.notional < mode_cfg.get("min_premium", 0):
+        if event.notional < mode_cfg.get("min_notional", 0):
             return None
 
         otm_pct = abs(event.strike - event.underlying_price) / max(event.underlying_price, 1) * 100
@@ -45,15 +45,17 @@ class DayTrendStrategy(Strategy):
             breaking_level = bool(event.is_aggressive or event.is_sweep)
 
         # Relative volume guard if provided
-        if context.get("rvol", 0) < mode_cfg.get("min_rvol", 0):
+        rvol = context.get("rvol")
+        if rvol is not None and rvol < mode_cfg.get("min_rvol", 0):
+            return None
+
+        if not breaking_level:
             return None
 
         enriched_context = dict(context)
         enriched_context["trend_aligned"] = trend_aligned and breaking_level
 
         strength, tags, rules = score_signal(event, enriched_context, mode_cfg)
-        if not breaking_level:
-            return None
         if strength < mode_cfg.get("min_strength", 0):
             return None
 

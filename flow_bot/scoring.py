@@ -16,10 +16,19 @@ def score_signal(event: FlowEvent, context: dict, mode_cfg: dict) -> tuple[float
     tags: list[str] = []
     rules: list[str] = []
 
-    if event.notional >= mode_cfg.get("min_premium", 0):
+    min_notional = mode_cfg.get("min_notional")
+    if min_notional is None:
+        min_notional = mode_cfg.get("min_premium", 0)
+
+    if event.notional >= min_notional:
         score += 2
         tags.append("SIZE")
-        rules.append("premium>=min_premium")
+        rules.append("notional>=min_notional")
+
+    if event.notional >= min_notional:
+        score += 2
+        tags.append("SIZE_OK")
+        rules.append("size_ok")
 
     if event.is_sweep:
         score += 2

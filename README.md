@@ -33,8 +33,8 @@ Set these before running live or replay modes:
 
 Example highlights:
 
-- `scalp.min_premium`, `day_trade.max_dte`, `swing.min_strength` control each strategy’s gates.
-- `tickers.overrides.TSLA.scalp.min_premium` demonstrates ticker-specific tuning.
+- `scalp.min_notional`, `day_trade.max_dte`, `swing.min_strength` control each strategy’s gates.
+- `tickers.overrides.*` can override per-ticker thresholds when enabled.
 - `routing.channels.*` maps logical channels (scalps/swings/main) to the `TELEGRAM_CHAT_ID_ALERTS` environment variable so every alert lands in the same chat.
 
 ## Core Data Flow
@@ -72,7 +72,7 @@ Adjust `start`/`end` placeholders or extend with CLI args and real historical qu
 
 ## Strategies Overview
 
-- **ScalpMomentumStrategy** – Fast setups: DTE ≤ `scalp.max_dte`, notional ≥ `scalp.min_premium`, near-the-money strikes, RVOL and VWAP/trend alignment, sweeps/aggression favored, volume vs OI freshness checks.
+- **ScalpMomentumStrategy** – Fast setups: DTE ≤ `scalp.max_dte`, notional ≥ `scalp.min_notional`, near-the-money strikes, RVOL and VWAP/trend alignment, sweeps/aggression favored, volume vs OI freshness checks.
 - **DayTrendStrategy** – Holds intraday trend breaks: allows longer DTE, looks for sweeps in clusters, 15m trend confirmation, level breaks, and relative volume gates.
 - **SwingAccumulationStrategy** – Larger, slower plays: DTE within swing window, premium/OTM guards, repeated buying memory, daily trend alignment, higher strength threshold.
 

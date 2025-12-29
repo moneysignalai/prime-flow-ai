@@ -22,7 +22,7 @@ class ScalpMomentumStrategy(Strategy):
         dte = (event.expiry - event.event_time.date()).days
         if dte > mode_cfg.get("max_dte", 0):
             return None
-        if event.notional < mode_cfg.get("min_premium", 0):
+        if event.notional < mode_cfg.get("min_notional", 0):
             return None
 
         # Strike proximity to underlying
@@ -31,7 +31,8 @@ class ScalpMomentumStrategy(Strategy):
             return None
 
         # Relative volume gate
-        if context.get("rvol", 0) < mode_cfg.get("min_rvol", 0):
+        rvol = context.get("rvol")
+        if rvol is not None and rvol < mode_cfg.get("min_rvol", 0):
             return None
 
         call_put = (event.call_put or event.raw.get("call_put") or "CALL").upper()
