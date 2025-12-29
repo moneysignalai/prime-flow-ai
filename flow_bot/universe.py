@@ -1,11 +1,9 @@
 """Universe resolution for live scanning.
 
 Precedence:
-- If ticker overrides are configured, use those (capped at ``max_tickers``).
-- Otherwise, attempt to fetch the top-N most-active U.S. stocks by volume
-  from the provider (Massive/Polygon) using the equity snapshot endpoint.
-- If the dynamic fetch fails or returns empty, fall back to a configured
-  static list, and finally to a tiny safety list.
+- Always try to build a dynamic top-volume universe from Massive/Polygon.
+- If dynamic fetch is empty or fails, fall back to configured static list.
+- Finally use a built-in safety list to guarantee a non-empty universe.
 """
 from __future__ import annotations
 
@@ -22,14 +20,18 @@ DEFAULT_FALLBACK = [
     "SPY",
     "QQQ",
     "IWM",
+    "DIA",
     "AAPL",
     "MSFT",
     "NVDA",
-    "TSLA",
     "META",
-    "AMD",
     "GOOGL",
     "AMZN",
+    "AMD",
+    "TSLA",
+    "AVGO",
+    "NFLX",
+    "SMH",
 ]
 
 
@@ -99,65 +101,68 @@ def _try_fetch_top_volume(cfg: Dict, max_tickers: int, api_key: str) -> List[str
 
 def resolve_universe(cfg: Dict, *, max_tickers: int = 500) -> List[str]:
     """
-    Determine the ticker universe for scanning.
+    Resolve the ticker universe for live scanning.
 
-    Precedence: overrides -> dynamic top-N by volume -> configured fallback
-    -> built-in safety fallback.
+    Precedence:
+      1) Dynamic top-volume universe from provider.
+      2) Config-provided fallback universe.
+      3) Built-in DEFAULT_FALLBACK.
     """
 
+    uni_cfg = cfg.get("universe") or {}
     tickers_cfg = cfg.get("tickers") or {}
-    overrides = (tickers_cfg.get("overrides") or {}).keys()
-    if overrides:
-        selected = _unique([t.upper() for t in overrides])[:max_tickers]
-        LOGGER.info(
-            "[UNIVERSE] Using ticker overrides (%d). Sample: %s",
-            len(selected),
-            ", ".join(selected[:10]),
-        )
-        return selected
+    fallback_from_cfg = (uni_cfg.get("fallback") or []) or (
+        tickers_cfg.get("fallback_universe") or []
+    )
 
-    universe_cfg = cfg.get("universe") or {}
-    fallback_cfg = universe_cfg.get("fallback") or []
-    fallback = _unique([t.upper() for t in fallback_cfg]) or DEFAULT_FALLBACK
+    try:
+        max_tickers_cfg = int(uni_cfg.get("max_tickers")) if uni_cfg.get("max_tickers") else max_tickers
+    except Exception:
+        LOGGER.warning(
+            "[UNIVERSE] Invalid universe.max_tickers=%s; using default %s",
+            uni_cfg.get("max_tickers"),
+            max_tickers,
+        )
+        max_tickers_cfg = max_tickers
 
     api_keys = (cfg.get("api_keys") if isinstance(cfg, dict) else None) or load_api_keys()
     api_key = api_keys.get("polygon_massive") if api_keys else None
 
-    # Adjust max_tickers from config if provided
-    cfg_max = universe_cfg.get("max_tickers")
-    if cfg_max:
+    # 1) Dynamic universe first
+    dynamic: List[str] = []
+    if api_key:
         try:
-            max_tickers = int(cfg_max)
+            dynamic = _try_fetch_top_volume(cfg, max_tickers_cfg, api_key)
+            dynamic = _unique([t.upper() for t in dynamic])
         except Exception:
-            LOGGER.warning("Invalid universe.max_tickers=%s; using %s", cfg_max, max_tickers)
-
-    if not api_key:
+            LOGGER.exception("[UNIVERSE] Error fetching dynamic top-volume universe")
+    else:
         LOGGER.warning(
-            "[UNIVERSE] No API key available for dynamic universe; using fallback list (%d).",
-            len(fallback),
-        )
-        return fallback[:max_tickers]
-
-    try:
-        dynamic = _try_fetch_top_volume(cfg, max_tickers, api_key)
-        dynamic = _unique([t.upper() for t in dynamic])
-        if dynamic:
-            LOGGER.info(
-                "[UNIVERSE] Using dynamic top-volume universe (%d tickers). Sample: %s",
-                len(dynamic),
-                ", ".join(dynamic[:10]) + (" ..." if len(dynamic) > 10 else ""),
-            )
-            return dynamic[:max_tickers]
-        LOGGER.warning(
-            "[UNIVERSE] Dynamic universe fetch returned empty; using fallback list (%d).",
-            len(fallback),
-        )
-    except Exception as exc:  # pragma: no cover - network path
-        LOGGER.warning(
-            "[UNIVERSE] Dynamic universe fetch FAILED; switching to fallback list (%d). Reason: %s",
-            len(fallback),
-            exc,
+            "[UNIVERSE] No API key available for dynamic universe; attempting fallback.",
         )
 
-    return fallback[:max_tickers]
+    if dynamic:
+        LOGGER.info(
+            "[UNIVERSE] Using dynamic top-volume universe | Count: %d",
+            len(dynamic),
+        )
+        LOGGER.info("[UNIVERSE] Sample: %s", ", ".join(dynamic[:20]))
+        return dynamic[:max_tickers_cfg]
+
+    # 2) Config fallback
+    if fallback_from_cfg:
+        deduped = _unique([t.upper() for t in fallback_from_cfg])
+        LOGGER.warning(
+            "[UNIVERSE] Dynamic universe empty; using config fallback | Count: %d",
+            len(deduped),
+        )
+        LOGGER.info("[UNIVERSE] Fallback sample: %s", ", ".join(deduped[:20]))
+        return deduped[:max_tickers_cfg]
+
+    # 3) Built-in fallback
+    LOGGER.error(
+        "[UNIVERSE] Dynamic universe and config fallback empty; using built-in fallback universe",
+    )
+    LOGGER.info("[UNIVERSE] Built-in sample: %s", ", ".join(DEFAULT_FALLBACK[:20]))
+    return DEFAULT_FALLBACK[:max_tickers_cfg]
 

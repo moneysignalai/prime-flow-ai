@@ -123,7 +123,7 @@ class FlowClient:
         LOGGER.info(
             "[UNIVERSE] FlowClient using universe of %d tickers for live options polling. Sample: %s",
             len(universe),
-            ", ".join(universe[:10]) + (" ..." if len(universe) > 10 else ""),
+            ", ".join(universe[:20]),
         )
 
         while True:

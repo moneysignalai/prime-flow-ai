@@ -28,6 +28,7 @@ universe:
     - SPY
     - QQQ
     - IWM
+    - DIA
     - AAPL
     - MSFT
     - NVDA
@@ -36,6 +37,9 @@ universe:
     - AMD
     - GOOGL
     - AMZN
+    - AVGO
+    - NFLX
+    - SMH
 
 scalp:
   min_premium: 50000
