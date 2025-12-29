@@ -144,7 +144,7 @@ class FlowClient:
         )
         # TODO: implement real historical fetch.
         if tickers:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             return [
                 FlowEvent(
                     ticker=tickers[0],
@@ -332,7 +332,7 @@ class FlowClient:
             expiry = (
                 date.fromisoformat(str(expiry_raw).split("T")[0])
                 if expiry_raw
-                else (datetime.utcnow() + timedelta(days=7)).date()
+                else (datetime.now(timezone.utc) + timedelta(days=7)).date()
             )
 
             option_price = float(raw.get("price") or raw.get("option_price") or raw.get("premium") or 0.0)
@@ -364,14 +364,14 @@ class FlowClient:
             ts_raw = raw.get("timestamp") or raw.get("ts") or raw.get("event_time") or raw.get("time")
             event_time = None
             if isinstance(ts_raw, (int, float)):
-                event_time = datetime.utcfromtimestamp(ts_raw)
+                event_time = datetime.fromtimestamp(ts_raw, tz=timezone.utc)
             elif ts_raw:
                 try:
                     event_time = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
                 except Exception:  # pragma: no cover - defensive
-                    event_time = datetime.utcnow()
+                    event_time = datetime.now(timezone.utc)
             else:
-                event_time = datetime.utcnow()
+                event_time = datetime.now(timezone.utc)
 
             return FlowEvent(
                 ticker=ticker,
@@ -411,7 +411,7 @@ class FlowClient:
             (self.cfg.get("tickers", {}) or {}).get("overrides", {}).keys()
         ) or ["SPY", "QQQ", "TSLA"]
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for idx, ticker in enumerate(sample_tickers[:3]):
             contracts = 100 + idx * 50
             option_price = 1.25 + 0.25 * idx

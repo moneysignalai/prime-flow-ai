@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from .universe import resolve_universe
 
@@ -70,7 +70,7 @@ def main():
     logger = SignalLogger()
     paper_engine = PaperTradingEngine(cfg)
     hb = Heartbeat()
-    last_heartbeat_log = datetime.utcnow()
+    last_heartbeat_log = datetime.now(timezone.utc)
     heartbeat_interval = timedelta(seconds=60)
 
     try:
@@ -96,7 +96,7 @@ def main():
 
                 send_alert(route, text, cfg)
 
-            if datetime.utcnow() - last_heartbeat_log >= heartbeat_interval:
+            if datetime.now(timezone.utc) - last_heartbeat_log >= heartbeat_interval:
                 snapshot = hb.snapshot()
                 LOGGER.info(
                     "[HEARTBEAT] Bot Healthy | Universe Size: %s | Events processed: %s | Signals: %s",
@@ -105,7 +105,7 @@ def main():
                     hb.signals_generated,
                 )
                 LOGGER.debug(snapshot)
-                last_heartbeat_log = datetime.utcnow()
+                last_heartbeat_log = datetime.now(timezone.utc)
 
             # TODO: periodically update paper positions with latest prices
             # TODO: periodically send heartbeat snapshot

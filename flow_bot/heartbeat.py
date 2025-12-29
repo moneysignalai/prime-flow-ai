@@ -1,12 +1,12 @@
 """Simple heartbeat/status tracker."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 class Heartbeat:
     def __init__(self):
-        self.last_reset = datetime.utcnow()
+        self.last_reset = datetime.now(timezone.utc)
         self.events_processed = 0
         self.signals_generated = 0
         self.signals_by_kind: dict[str, int] = {}
@@ -19,7 +19,7 @@ class Heartbeat:
         self.signals_by_kind[signal_kind] = self.signals_by_kind.get(signal_kind, 0) + 1
 
     def snapshot(self) -> str:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         elapsed = now - self.last_reset
         minutes = max(elapsed.total_seconds() / 60.0, 1)
         events_per_min = self.events_processed / minutes
@@ -34,7 +34,7 @@ class Heartbeat:
         return "\n".join(lines)
 
     def reset(self):
-        self.last_reset = datetime.utcnow()
+        self.last_reset = datetime.now(timezone.utc)
         self.events_processed = 0
         self.signals_generated = 0
         self.signals_by_kind.clear()
