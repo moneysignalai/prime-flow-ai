@@ -186,6 +186,20 @@ def _fmt_underlying(signal: Signal, event: FlowEvent) -> str:
     return _fmt_price(last_price)
 
 
+def _bad_move_emoji(signal: Signal) -> str:
+    """
+    Emoji representing price moving AGAINST the signal direction.
+    For bullish trades, a bad move is down (📉).
+    For bearish trades, a bad move is up (📈).
+    Defaults to 📉 if direction is unknown.
+    """
+
+    direction = (signal.direction or "").upper()
+    if direction == "BEARISH":
+        return "📈"
+    return "📉"
+
+
 def _execution_quality(signal: Signal, event: FlowEvent) -> str:
     return _ctx(signal, "execution_quality") or ("Aggressive" if event and event.is_aggressive else "Unknown")
 
@@ -295,6 +309,7 @@ def format_scalp_alert(signal: Signal) -> str:
 
     scalp_min = signal.time_horizon_min or SCALP_MINUTES[0]
     scalp_max = signal.time_horizon_max or SCALP_MINUTES[1]
+    bad = _bad_move_emoji(signal)
 
     text = (
         f"⚡ SCALP {call_or_put} — {ticker}\n"
@@ -324,8 +339,8 @@ def format_scalp_alert(signal: Signal) -> str:
         f"Aggressive, short-dated flow aligned with intraday structure suggests a fast move setup, not random noise.\n\n"
         f"⚠️ RISK & TIMING\n"
         f"❌ Invalid if:\n"
-        f"• 🚫 VWAP breaks\n"
-        f"• 🚫 Trend flips\n"
+        f"• {bad} VWAP breaks against the trade\n"
+        f"• 🔄 Trend flips against the trade\n"
         f"⏱ Best suited for: {scalp_min}–{scalp_max} min scalp window\n\n"
         f"📊 REGIME\n"
         f"• 📈 Trend: {trend_direction}\n"
@@ -368,6 +383,7 @@ def format_day_trade_alert(signal: Signal) -> str:
 
     day_min = signal.time_horizon_min or DAY_MINUTES[0]
     day_max = signal.time_horizon_max or DAY_MINUTES[1]
+    bad = _bad_move_emoji(signal)
 
     direction_word = signal.direction.capitalize() if signal.direction else "Directional"
     buyers_or_sellers = "buyers" if direction_word.lower() == "bullish" else "sellers"
@@ -399,8 +415,8 @@ def format_day_trade_alert(signal: Signal) -> str:
         f"Flow + structure + regime show session control by {buyers_or_sellers}.\n\n"
         f"⚠️ RISK & EXECUTION\n"
         f"❌ Invalid if:\n"
-        f"• 📉 VWAP lost\n"
-        f"• 🔄 15m trend flips\n"
+        f"• {bad} VWAP moves against the trade\n"
+        f"• 🔄 15m trend flips against the trade\n"
         f"• ❌ Breakout retest fails\n"
         f"⏱ Expected window: {day_min}–{day_max} min\n\n"
         f"📊 REGIME\n"
@@ -439,6 +455,7 @@ def format_swing_alert(signal: Signal) -> str:
 
     swing_min = signal.time_horizon_days_min or SWING_DAYS[0]
     swing_max = signal.time_horizon_days_max or SWING_DAYS[1]
+    bad = _bad_move_emoji(signal)
 
     text = (
         f"⏳ SWING {call_or_put} — {ticker}\n"
@@ -466,8 +483,8 @@ def format_swing_alert(signal: Signal) -> str:
         f"Size, repetition, and structure strongly suggest non-retail accumulation.\n\n"
         f"⚠️ RISK & PLAN\n"
         f"❌ Invalid if:\n"
-        f"• 📉 Swing pivot breaks\n"
-        f"• 🔄 Trend reversal on higher timeframe\n"
+        f"• {bad} key swing pivot breaks against the trade\n"
+        f"• 🔄 Higher timeframe trend reverses against the trade\n"
         f"⏳ Expected holding: {swing_min}–{swing_max} days\n"
         f"(Informational only — not financial advice)\n\n"
         f"📊 REGIME\n"
