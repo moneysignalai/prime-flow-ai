@@ -120,9 +120,9 @@ class FlowClient:
         seen_ids: Set[str] = set()
 
         LOGGER.info(
-            "Starting Massive option-chain polling for live flow on %d tickers: %s",
+            "[UNIVERSE] FlowClient using universe of %d tickers for live options polling. Sample: %s",
             len(universe),
-            ", ".join(universe[:20]) + (" ..." if len(universe) > 20 else ""),
+            ", ".join(universe[:10]) + (" ..." if len(universe) > 10 else ""),
         )
 
         while True:
@@ -182,21 +182,39 @@ class FlowClient:
         """Poll Massive Option Chain Snapshot and yield new FlowEvents."""
 
         for underlying in universe:
+            start_ts = time.monotonic()
+            LOGGER.info(
+                "[API] Requesting option chain snapshot | Ticker: %s | Endpoint: %s/%s",
+                underlying,
+                self.massive_base_url,
+                self.massive_option_chain_path.lstrip("/"),
+            )
             try:
                 payload: Dict[str, Any] = self.get_option_chain_snapshot(underlying)
+                latency_ms = (time.monotonic() - start_ts) * 1000
+                contracts_count = len((payload.get("results") if isinstance(payload, dict) else []) or [])
+                LOGGER.info(
+                    "[API] Success: option chain | Ticker: %s | Contracts Returned: %s | Latency: %.0f ms",
+                    underlying,
+                    contracts_count,
+                    latency_ms,
+                )
             except requests.HTTPError as exc:
                 status = exc.response.status_code if exc.response else "unknown"
                 LOGGER.error(
-                    "Massive option-chain endpoint returned %s for %s. Check provider.base_url (%s) and option_chain_path (%s).",
-                    status,
+                    "[API] ERROR: Massive request failed | Ticker: %s | Status: %s | Path: %s | Retrying in %.0fs",
                     underlying,
-                    self.massive_base_url,
+                    status,
                     self.massive_option_chain_path,
+                    self.poll_interval,
                 )
                 continue
             except Exception as exc:
                 LOGGER.warning(
-                    "Error calling Massive snapshot for %s: %s", underlying, exc
+                    "[API] ERROR: Massive snapshot call failed | Ticker: %s | Reason: %s | Retrying in %.0fs",
+                    underlying,
+                    exc,
+                    self.poll_interval,
                 )
                 continue
 
@@ -216,6 +234,7 @@ class FlowClient:
 
                     unique_id = f"{underlying}:{option_ticker}:{ts_ns}"
                     if unique_id in seen_ids:
+                        LOGGER.debug("[FLOW] Skipping duplicate event %s", unique_id)
                         continue
                     seen_ids.add(unique_id)
 
@@ -268,6 +287,17 @@ class FlowClient:
                         underlying_price=underlying_price,
                         event_time=event_time,
                         raw=contract,
+                    )
+                    LOGGER.info(
+                        "[FLOW] New event detected | Ticker: %s | Type: %s %s | Strike: %s | Expiry: %s | Contracts: %s | Notional: $%.2f | Underlying: %.2f",
+                        underlying,
+                        side,
+                        event.action,
+                        strike,
+                        expiry.isoformat(),
+                        contracts,
+                        notional,
+                        underlying_price,
                     )
                     yield event
                 except Exception:

@@ -75,7 +75,7 @@ def _try_fetch_top_volume(cfg: Dict, max_tickers: int, api_key: str) -> List[str
     }
 
     LOGGER.info(
-        "Fetching dynamic universe via equity snapshots (limit=%s) from %s",
+        "[UNIVERSE] Fetching dynamic universe via equity snapshots (limit=%s) from %s",
         max_tickers,
         url,
     )
@@ -109,7 +109,11 @@ def resolve_universe(cfg: Dict, *, max_tickers: int = 500) -> List[str]:
     overrides = (tickers_cfg.get("overrides") or {}).keys()
     if overrides:
         selected = _unique([t.upper() for t in overrides])[:max_tickers]
-        LOGGER.info("Using ticker overrides (%d): %s", len(selected), ", ".join(selected))
+        LOGGER.info(
+            "[UNIVERSE] Using ticker overrides (%d). Sample: %s",
+            len(selected),
+            ", ".join(selected[:10]),
+        )
         return selected
 
     universe_cfg = cfg.get("universe") or {}
@@ -129,7 +133,7 @@ def resolve_universe(cfg: Dict, *, max_tickers: int = 500) -> List[str]:
 
     if not api_key:
         LOGGER.warning(
-            "No API key available for dynamic universe; using fallback list (%d).",
+            "[UNIVERSE] No API key available for dynamic universe; using fallback list (%d).",
             len(fallback),
         )
         return fallback[:max_tickers]
@@ -139,17 +143,18 @@ def resolve_universe(cfg: Dict, *, max_tickers: int = 500) -> List[str]:
         dynamic = _unique([t.upper() for t in dynamic])
         if dynamic:
             LOGGER.info(
-                "Using dynamic universe (%d tickers) from provider: %s",
+                "[UNIVERSE] Using dynamic top-volume universe (%d tickers). Sample: %s",
                 len(dynamic),
-                ", ".join(dynamic[:20]) + (" ..." if len(dynamic) > 20 else ""),
+                ", ".join(dynamic[:10]) + (" ..." if len(dynamic) > 10 else ""),
             )
             return dynamic[:max_tickers]
         LOGGER.warning(
-            "Dynamic universe fetch returned empty; using fallback list (%d).", len(fallback)
+            "[UNIVERSE] Dynamic universe fetch returned empty; using fallback list (%d).",
+            len(fallback),
         )
     except Exception as exc:  # pragma: no cover - network path
         LOGGER.warning(
-            "Dynamic universe fetch failed; using fallback list (%d). Error: %s",
+            "[UNIVERSE] Dynamic universe fetch FAILED; switching to fallback list (%d). Reason: %s",
             len(fallback),
             exc,
         )

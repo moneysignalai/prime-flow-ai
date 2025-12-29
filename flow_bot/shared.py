@@ -62,7 +62,7 @@ def send_alert(message: str, channel: str = "telegram_main") -> None:
     """
 
     if not TELEGRAM_BOT_TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN is not set; cannot send Telegram alerts.")
+        logger.error("[ALERT] TELEGRAM_BOT_TOKEN is not set; cannot send Telegram alerts.")
         return
 
     chat_id = _get_telegram_chat_id(channel)
@@ -77,9 +77,18 @@ def send_alert(message: str, channel: str = "telegram_main") -> None:
         "disable_web_page_preview": True,
     }
 
+    logger.info("[ALERT] Sending Telegram alert | Channel: %s", channel)
+    resp = None
     try:
         resp = requests.post(url, json=payload, timeout=5)
         resp.raise_for_status()
+        logger.info("[ALERT] Telegram delivered successfully | Channel: %s", channel)
     except Exception as exc:  # pragma: no cover - network path
-        logger.exception("Failed to send Telegram alert to channel '%s': %s", channel, exc)
+        status = getattr(getattr(resp, "status_code", None), "__str__", lambda: "?")()
+        logger.exception(
+            "[ALERT] ERROR sending Telegram | Channel: %s | Status: %s | Reason: %s",
+            channel,
+            status,
+            exc,
+        )
 
