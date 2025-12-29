@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, List, Optional
 
 from .models import FlowEvent, Signal
@@ -74,7 +75,12 @@ def _fmt_timestamp(dt: Optional[datetime]) -> str:
     if not dt:
         return "N/A"
     try:
-        return dt.strftime("%Y-%m-%d %I:%M:%S %p").lstrip("0")
+        if dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None:
+            dt_local = dt.astimezone(ZoneInfo("America/New_York"))
+        else:
+            dt_local = dt
+        formatted = dt_local.strftime("%Y-%m-%d %I:%M:%S %p").lstrip("0")
+        return f"{formatted} ET"
     except Exception:
         return str(dt)
 
@@ -345,7 +351,7 @@ def format_scalp_alert(signal: Signal) -> str:
         f"📊 REGIME\n"
         f"• 📈 Trend: {trend_direction}\n"
         f"• 🌪 Volatility: {vol_regime}\n\n"
-        f"🕒 {created_at} ET"
+        f"🕒 {created_at}"
     )
     return text
 
@@ -422,7 +428,7 @@ def format_day_trade_alert(signal: Signal) -> str:
         f"📊 REGIME\n"
         f"• 📈 Trend: {trend_direction}\n"
         f"• 🌪 Volatility: {vol_regime}\n\n"
-        f"🕒 {created_at} ET"
+        f"🕒 {created_at}"
     )
     return text
 
@@ -490,7 +496,7 @@ def format_swing_alert(signal: Signal) -> str:
         f"📊 REGIME\n"
         f"• 📈 Trend: {trend_direction}\n"
         f"• 🌪 Volatility: {vol_regime}\n\n"
-        f"🕒 {created_at} ET"
+        f"🕒 {created_at}"
     )
     return text
 

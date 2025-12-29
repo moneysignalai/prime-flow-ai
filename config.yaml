@@ -3,6 +3,7 @@ experiment_id: "v1.0"
 general:
   poll_interval_seconds: 1
   max_events_per_cycle: 500
+  max_event_age_minutes: 180
 
 market_regime:
   lookback_minutes: 60

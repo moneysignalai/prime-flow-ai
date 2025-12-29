@@ -28,6 +28,7 @@ class FlowClient:
         self.polygon_massive_key = api_keys.get("polygon_massive") if api_keys else None
 
         flow_cfg = (config or {}).get("flow", {}) if isinstance(config, dict) else {}
+        general_cfg = (config or {}).get("general", {}) if isinstance(config, dict) else {}
         provider_cfg = (config or {}).get("provider", {}) if isinstance(config, dict) else {}
 
         # Allow provider name to be configured via either flow.provider or provider.name
@@ -48,6 +49,7 @@ class FlowClient:
 
         self.session = requests.Session()
         self.timeout: float = float(flow_cfg.get("timeout_seconds") or 5.0)
+        self.max_event_age_minutes: float = float(general_cfg.get("max_event_age_minutes") or 180.0)
 
         # Backward compatibility: honor legacy flow.massive_live_endpoint if provided.
         legacy_endpoint = flow_cfg.get("massive_live_endpoint")
@@ -190,6 +192,9 @@ class FlowClient:
     ) -> Iterator[FlowEvent]:
         """Poll Massive Option Chain Snapshot and yield new FlowEvents."""
 
+        now = datetime.now(timezone.utc)
+        max_age = timedelta(minutes=self.max_event_age_minutes)
+
         for underlying in universe:
             start_ts = time.monotonic()
             LOGGER.info(
@@ -246,17 +251,31 @@ class FlowClient:
                     if not option_ticker or not ts_ns:
                         continue
 
-                    unique_id = f"{underlying}:{option_ticker}:{ts_ns}"
-                    if unique_id in seen_ids:
-                        LOGGER.debug("[FLOW] Skipping duplicate event %s", unique_id)
-                        continue
-                    seen_ids.add(unique_id)
-
                     try:
                         ts_sec = float(ts_ns) / 1e9
                     except Exception:
                         ts_sec = float(ts_ns) / 1000.0
                     event_time = datetime.fromtimestamp(ts_sec, tz=timezone.utc)
+
+                    age = now - event_time
+                    if age > max_age:
+                        LOGGER.debug(
+                            "[FLOW] Skipping stale event %s (age %.1f min)", option_ticker, age.total_seconds() / 60.0
+                        )
+                        continue
+                    if age < -timedelta(minutes=5):
+                        LOGGER.debug(
+                            "[FLOW] Skipping future-dated event %s (age %.1f min)",
+                            option_ticker,
+                            age.total_seconds() / 60.0,
+                        )
+                        continue
+
+                    unique_id = f"{underlying}:{option_ticker}:{ts_ns}"
+                    if unique_id in seen_ids:
+                        LOGGER.debug("[FLOW] Skipping duplicate event %s", unique_id)
+                        continue
+                    seen_ids.add(unique_id)
 
                     call_put = (details.get("contract_type") or "").upper()
                     strike = float(details.get("strike_price") or 0.0)
