@@ -12,6 +12,17 @@ from typing import Dict, List, Optional
 
 from .models import FlowEvent, Signal
 
+__all__ = [
+    "format_alert",
+    "format_scalp_alert",
+    "format_day_trade_alert",
+    "format_swing_alert",
+    "format_short_alert",
+    "format_medium_alert",
+    "format_deep_dive_alert",
+    "choose_alert_mode",
+]
+
 # Default timing windows
 SCALP_MINUTES = (5, 30)
 DAY_MINUTES = (30, 360)
@@ -465,6 +476,35 @@ def format_swing_alert(signal: Signal) -> str:
         f"🕒 {created_at} ET"
     )
     return text
+
+
+# ---------------------------------------------------------------------------
+# Backwards-compatible wrappers (legacy names)
+# ---------------------------------------------------------------------------
+
+
+def format_short_alert(signal: Signal) -> str:
+    """
+    Backwards-compatible wrapper for short-format alerts (scalp).
+    """
+
+    return format_scalp_alert(signal)
+
+
+def format_medium_alert(signal: Signal) -> str:
+    """
+    Backwards-compatible wrapper for medium-format alerts (day trade).
+    """
+
+    return format_day_trade_alert(signal)
+
+
+def format_deep_dive_alert(signal: Signal) -> str:
+    """
+    Backwards-compatible wrapper for deep-dive alerts (swing).
+    """
+
+    return format_swing_alert(signal)
 
 
 # ---------------------------------------------------------------------------
