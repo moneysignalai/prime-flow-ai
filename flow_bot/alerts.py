@@ -167,10 +167,29 @@ def _fmt_trend_direction(signal: Signal) -> str:
 
 
 def _fmt_vol_regime(signal: Signal) -> str:
+    """Return a human-friendly volatility regime with RVOL fallback."""
+
     mr = _ctx_market_regime(signal)
     vol = (mr.get("volatility") or "UNKNOWN").upper()
     mapping = {"LOW": "Low", "NORMAL": "Normal", "ELEVATED": "Elevated", "UNKNOWN": "Unknown"}
-    return mapping.get(vol, vol.title())
+
+    if vol != "UNKNOWN":
+        return mapping.get(vol, vol.title())
+
+    # Fallback to RVOL-derived volatility labels when explicit regime is unknown
+    rvol = _ctx(signal, "rvol")
+    if rvol is None:
+        return "Unknown"
+    try:
+        rvol_val = float(rvol)
+    except Exception:
+        return "Unknown"
+
+    if rvol_val >= 1.30:
+        return "Elevated"
+    if rvol_val <= 0.80:
+        return "Low"
+    return "Normal"
 
 
 def _fmt_rvol(signal: Signal) -> str:
@@ -206,8 +225,38 @@ def _bad_move_emoji(signal: Signal) -> str:
     return "📉"
 
 
-def _execution_quality(signal: Signal, event: FlowEvent) -> str:
-    return _ctx(signal, "execution_quality") or ("Aggressive" if event and event.is_aggressive else "Unknown")
+def _infer_execution_quality(signal: Signal, event: FlowEvent) -> str:
+    """Infer execution quality from context and bid/ask/price when possible."""
+
+    override = _ctx(signal, "execution_quality")
+    if isinstance(override, str) and override.strip():
+        return override
+
+    if event and event.bid is not None and event.ask is not None and event.option_price is not None:
+        try:
+            bid = float(event.bid)
+            ask = float(event.ask)
+            price = float(event.option_price)
+            mid = (bid + ask) / 2
+            if (event.side or "").upper() == "BUY":
+                if price >= 0.995 * ask:
+                    return "Aggressive at/near ask"
+                if price >= mid:
+                    return "Above mid (slightly aggressive)"
+                return "Below mid / passive"
+            else:
+                if price <= 1.005 * bid:
+                    return "Aggressive at/near bid"
+                if price <= mid:
+                    return "Below mid (slightly aggressive)"
+                return "Above mid / passive"
+        except Exception:
+            pass
+
+    if event and event.is_aggressive:
+        return "Aggressive"
+
+    return "Standard"
 
 
 def _order_structure(signal: Signal, event: FlowEvent) -> str:
@@ -216,13 +265,23 @@ def _order_structure(signal: Signal, event: FlowEvent) -> str:
     )
 
 
-def _cluster_fields(signal: Signal):
+def _cluster_fields(signal: Signal, event: FlowEvent):
+    """Return cluster details with sane single-trade defaults when missing."""
+
     cluster_trades = _ctx(signal, "cluster_trades")
     cluster_window_min = _ctx(signal, "cluster_window_min")
     cluster_premium = _ctx(signal, "cluster_premium")
-    cluster_trades_str = str(cluster_trades) if cluster_trades is not None else "N/A"
-    cluster_window_str = str(cluster_window_min) if cluster_window_min is not None else "N/A"
-    cluster_premium_str = _fmt_money(cluster_premium if cluster_premium is not None else None)
+
+    if cluster_trades is None:
+        cluster_trades = 1
+    if cluster_window_min is None:
+        cluster_window_min = 0
+    if cluster_premium is None:
+        cluster_premium = event.notional if event else None
+
+    cluster_trades_str = str(cluster_trades)
+    cluster_window_str = str(cluster_window_min)
+    cluster_premium_str = _fmt_money(cluster_premium)
     return cluster_trades_str, cluster_window_str, cluster_premium_str
 
 
@@ -308,9 +367,9 @@ def format_scalp_alert(signal: Signal) -> str:
     dte = _fmt_dte(event)
     underlying = _fmt_underlying(signal, event)
 
-    cluster_trades_str, cluster_window_str, cluster_premium_str = _cluster_fields(signal)
+    cluster_trades_str, cluster_window_str, cluster_premium_str = _cluster_fields(signal, event)
 
-    exec_quality = _execution_quality(signal, event)
+    exec_quality = _infer_execution_quality(signal, event)
     order_structure = _order_structure(signal, event)
 
     scalp_min = signal.time_horizon_min or SCALP_MINUTES[0]
@@ -382,9 +441,9 @@ def format_day_trade_alert(signal: Signal) -> str:
     dte = _fmt_dte(event)
     underlying = _fmt_underlying(signal, event)
 
-    cluster_trades_str, cluster_window_str, cluster_premium_str = _cluster_fields(signal)
+    cluster_trades_str, cluster_window_str, cluster_premium_str = _cluster_fields(signal, event)
 
-    exec_quality = _execution_quality(signal, event)
+    exec_quality = _infer_execution_quality(signal, event)
     order_structure = _order_structure(signal, event)
 
     day_min = signal.time_horizon_min or DAY_MINUTES[0]
