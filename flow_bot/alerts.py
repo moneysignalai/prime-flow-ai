@@ -1,15 +1,16 @@
-"""Alert formatting utilities with structured, emoji-enhanced templates.
+"""Alert formatting utilities for Prime Flow AI.
 
-This module keeps the same data fields but upgrades the readability and
-consistency across scalp, day-trade, and swing alerts.
+This module builds structured, emoji-enhanced alerts for scalp, day-trade,
+and swing signals using the rich Signal/FlowEvent/context objects produced by
+upstream logic. Only presentation is handled here; no business logic changes.
 """
 from __future__ import annotations
 
+import math
 from datetime import datetime
-from typing import Iterable, List, Optional
-from zoneinfo import ZoneInfo
+from typing import Dict, List, Optional
 
-from .models import Signal
+from .models import FlowEvent, Signal
 
 # Default timing windows
 SCALP_MINUTES = (5, 30)
@@ -17,383 +18,461 @@ DAY_MINUTES = (30, 360)
 SWING_DAYS = (2, 10)
 
 
-def _first_event(signal: Signal):
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _primary_event(signal: Signal) -> Optional[FlowEvent]:
     return signal.flow_events[0] if signal.flow_events else None
 
 
-def _to_et(ts: datetime | None) -> Optional[datetime]:
-    if ts is None:
-        return None
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=ZoneInfo("UTC"))
-    return ts.astimezone(ZoneInfo("America/New_York"))
-
-
-def _format_time(signal: Signal) -> str:
-    ts: Optional[datetime] = getattr(signal, "created_at", None)
-    if ts is None and signal.flow_events:
-        ts = signal.flow_events[0].event_time
-    ts = _to_et(ts)
-    time_text = ts.strftime("%I:%M:%S %p").lstrip("0") if ts else "n/a"
-    return f"🕒 {time_text} ET"
-
-
-def _format_expiry(date_obj) -> str:
+def _fmt_money(value: Optional[float]) -> str:
+    if value is None:
+        return "N/A"
     try:
-        return date_obj.strftime("%m-%d-%Y")
+        if math.isnan(value):
+            return "N/A"
     except Exception:
-        return "n/a"
+        pass
+    return f"{value:,.0f}"
 
 
-def _format_money(value: Optional[float]) -> str:
+def _fmt_price(value: Optional[float]) -> str:
+    if value is None:
+        return "N/A"
     try:
-        return f"${value:,.0f}"
+        if math.isnan(value):
+            return "N/A"
     except Exception:
-        return "$0"
+        pass
+    return f"{value:,.2f}"
 
 
-def _format_price(value: Optional[float]) -> str:
+def _fmt_pct(value: Optional[float]) -> str:
+    if value is None:
+        return "N/A"
     try:
-        return f"${value:,.2f}"
+        if math.isnan(value):
+            return "N/A"
     except Exception:
-        return "n/a"
+        pass
+    return f"{value:.1f}%"
 
 
-def _format_percent(value: Optional[float]) -> str:
+def _fmt_timestamp(dt: Optional[datetime]) -> str:
+    if not dt:
+        return "N/A"
     try:
-        return f"{value:.1f}%"
+        return dt.strftime("%Y-%m-%d %I:%M:%S %p").lstrip("0")
     except Exception:
-        return "n/a"
+        return str(dt)
 
 
-def _volume_oi_line(event) -> str:
-    if event is None:
-        return "📊 Volume / OI: n/a"
-    oi_safe = max(event.open_interest or 0, 1)
-    return f"📊 Volume / OI: {event.volume} / {oi_safe}"
+def _fmt_expiry(expiry) -> str:
+    if not expiry:
+        return "N/A"
+    try:
+        return expiry.strftime("%b %d, %Y")
+    except Exception:
+        return str(expiry)
 
 
-def _flow_tags(signal: Signal, include_pattern: bool = False) -> str:
-    event = _first_event(signal)
-    tags: List[str] = []
-    if event and event.is_sweep:
-        tags.append("SWEEP")
-    if event and event.is_aggressive:
-        tags.append("AGGRESSIVE")
-    if include_pattern:
-        tags.extend([t for t in signal.tags if t.upper().startswith(("PERSISTENT", "ADDING"))])
+def _fmt_call_put(call_put: Optional[str]) -> str:
+    if not call_put:
+        return "OPTION"
+    cp = call_put.upper()
+    if cp.startswith("C"):
+        return "CALL"
+    if cp.startswith("P"):
+        return "PUT"
+    return cp
+
+
+def _fmt_volume_oi(volume: Optional[int], oi: Optional[int]) -> str:
+    v = volume or 0
+    o = oi or 0
+    return f"{v:,} / {o:,}"
+
+
+def _fmt_otm_percent(event: FlowEvent) -> str:
+    if not event or not event.underlying_price or not event.strike:
+        return "N/A"
+    try:
+        if _fmt_call_put(event.call_put) == "CALL":
+            diff = event.strike - event.underlying_price
+        else:
+            diff = event.underlying_price - event.strike
+        otm_pct = (diff / event.underlying_price) * 100
+        return f"{otm_pct:.1f}%"
+    except Exception:
+        return "N/A"
+
+
+def _fmt_dte(event: FlowEvent) -> str:
+    if not event or not event.expiry or not event.event_time:
+        return "N/A"
+    try:
+        delta = event.expiry - event.event_time.date()
+        return f"{delta.days} days"
+    except Exception:
+        return "N/A"
+
+
+def _join_tags(tags: List[str]) -> str:
     if not tags:
-        tags.extend(signal.tags)
-    return ", ".join(dict.fromkeys(tags)) if tags else "n/a"
+        return "None"
+    return ", ".join(sorted(set(tags)))
 
 
-def _vwap_relation(signal: Signal) -> str:
+def _ctx(signal: Signal, key: str, default=None):
     ctx = signal.context if isinstance(signal.context, dict) else {}
-    if ctx.get("above_vwap") is True:
-        return "Above"
-    if ctx.get("above_vwap") is False:
-        return "Below/At"
-    return "N/A"
+    return ctx.get(key, default)
 
 
-def _rvol_value(signal: Signal) -> str:
-    info = signal.context.get("price_info", {}) if isinstance(signal.context, dict) else {}
-    val = info.get("rvol")
-    return f"{val:.1f}" if isinstance(val, (int, float)) else "n/a"
+def _ctx_price(signal: Signal) -> Dict:
+    return _ctx(signal, "price_info", {}) or {}
 
 
-def _otm_value(signal: Signal) -> str:
-    info = signal.context.get("price_info", {}) if isinstance(signal.context, dict) else {}
-    return _format_percent(info.get("otm_pct"))
+def _ctx_market_regime(signal: Signal) -> Dict:
+    return _ctx(signal, "market_regime", {}) or {}
 
 
-def _dte_value(signal: Signal) -> str:
-    info = signal.context.get("price_info", {}) if isinstance(signal.context, dict) else {}
-    dte = info.get("dte")
+def _fmt_vwap_relation(signal: Signal) -> str:
+    rel = (_ctx(signal, "vwap_relation") or "UNKNOWN").upper()
+    mapping = {"ABOVE": "Above", "BELOW": "Below", "NEAR": "Near", "UNKNOWN": "Unknown"}
+    return mapping.get(rel, rel.title())
+
+
+def _fmt_trend_direction(signal: Signal) -> str:
+    td = (_ctx(signal, "trend_direction") or "UNKNOWN").upper()
+    mapping = {"UP": "Up", "DOWN": "Down", "CHOP": "Choppy", "UNKNOWN": "Unknown"}
+    return mapping.get(td, td.title())
+
+
+def _fmt_vol_regime(signal: Signal) -> str:
+    mr = _ctx_market_regime(signal)
+    vol = (mr.get("volatility") or "UNKNOWN").upper()
+    mapping = {"LOW": "Low", "NORMAL": "Normal", "ELEVATED": "Elevated", "UNKNOWN": "Unknown"}
+    return mapping.get(vol, vol.title())
+
+
+def _fmt_rvol(signal: Signal) -> str:
+    info = _ctx_price(signal)
+    val = info.get("rvol") or _ctx(signal, "rvol")
+    if val is None:
+        return "N/A"
     try:
-        return str(int(dte))
+        return f"{float(val):.2f}x"
     except Exception:
-        return "n/a"
+        return "N/A"
 
 
-def _regime(signal: Signal) -> tuple[str, str]:
-    regime = signal.context.get("market_regime", {}) if isinstance(signal.context, dict) else {}
-    return regime.get("trend", "UNKNOWN"), regime.get("volatility", "UNKNOWN")
+def _fmt_underlying(signal: Signal, event: FlowEvent) -> str:
+    price_info = _ctx_price(signal)
+    last_price = price_info.get("last_price")
+    if last_price is None and event:
+        last_price = event.underlying_price
+    return _fmt_price(last_price)
 
 
-def _cluster_info(signal: Signal) -> tuple[int, int, float]:
-    info = signal.context.get("flow_cluster", {}) if isinstance(signal.context, dict) else {}
-    count = int(info.get("count") or 1)
-    window = int(info.get("window_min") or 0)
-    premium = float(info.get("premium") or 0.0)
-    return count, window, premium
+def _execution_quality(signal: Signal, event: FlowEvent) -> str:
+    return _ctx(signal, "execution_quality") or ("Aggressive" if event and event.is_aggressive else "Unknown")
 
 
-def _structure_points(defaults: Iterable[str]) -> List[str]:
-    return [f"  – {pt}" for pt in defaults if pt]
+def _order_structure(signal: Signal, event: FlowEvent) -> str:
+    return _ctx(signal, "order_structure") or (
+        "Sweep" if event and event.is_sweep else "Block" if event and event.is_block else "Standard"
+    )
+
+
+def _cluster_fields(signal: Signal):
+    cluster_trades = _ctx(signal, "cluster_trades")
+    cluster_window_min = _ctx(signal, "cluster_window_min")
+    cluster_premium = _ctx(signal, "cluster_premium")
+    cluster_trades_str = str(cluster_trades) if cluster_trades is not None else "N/A"
+    cluster_window_str = str(cluster_window_min) if cluster_window_min is not None else "N/A"
+    cluster_premium_str = _fmt_money(cluster_premium if cluster_premium is not None else None)
+    return cluster_trades_str, cluster_window_str, cluster_premium_str
 
 
 def _micro_points(signal: Signal) -> List[str]:
-    ctx = signal.context if isinstance(signal.context, dict) else {}
-    micro1 = "pushing off VWAP" if ctx.get("above_vwap") else "fighting VWAP"
-    micro2 = "1m + 5m trends aligned" if ctx.get("trend_5m_up") else "short-term trend mixed"
-    micro3 = "pressure at key level = YES" if ctx.get("breaking_level") else "pressure at key level = no"
-    return _structure_points([micro1, micro2, micro3])
+    points = []
+    above_vwap = (_ctx(signal, "vwap_relation") or "UNKNOWN").upper() == "ABOVE"
+    points.append("pushing off VWAP" if above_vwap else "fighting VWAP")
+    trend_aligned = _ctx(signal, "trend_aligned") or False
+    points.append("short-term trend aligned" if trend_aligned else "short-term trend mixed")
+    breaking_level = _ctx(signal, "breaking_level") or False
+    points.append("pressure at key level" if breaking_level else "inside range")
+    return [f"  – {p}" for p in points]
 
 
-def _intraday_points(signal: Signal) -> List[str]:
-    ctx = signal.context if isinstance(signal.context, dict) else {}
-    point1 = "VWAP + EMA overhead" if not ctx.get("above_vwap") else "VWAP + EMA supportive"
-    point2 = "15m trend aligned" if ctx.get("trend_15m_up") else "15m trend uncertain"
-    point3 = "price interacting with key level" if ctx.get("breaking_level") else "range/pullback context"
-    return _structure_points([point1, point2, point3])
+def _structure_points(signal: Signal) -> List[str]:
+    points = []
+    above_vwap = (_ctx(signal, "vwap_relation") or "UNKNOWN").upper() == "ABOVE"
+    points.append("VWAP + EMA supportive" if above_vwap else "VWAP + EMA overhead")
+    trend_15m = _ctx(signal, "trend_15m_up")
+    points.append("15m trend aligned" if trend_15m else "15m trend uncertain")
+    breaking_level = _ctx(signal, "breaking_level") or False
+    points.append("price interacting with key level" if breaking_level else "range/pullback context")
+    return [f"  – {p}" for p in points]
 
 
 def _htf_points(signal: Signal) -> List[str]:
-    ctx = signal.context if isinstance(signal.context, dict) else {}
-    point1 = "daily trend aligned" if ctx.get("trend_daily_up") else "daily trend mixed"
-    point2 = "breakout → pullback" if ctx.get("breaking_level") else "accumulating near value"
-    point3 = "key levels supportive" if ctx.get("above_vwap") else "near supply / resistance"
-    return _structure_points([point1, point2, point3])
+    points = []
+    trend_daily = _ctx(signal, "trend_daily_up")
+    points.append("daily trend aligned" if trend_daily else "daily trend mixed")
+    breaking_level = _ctx(signal, "breaking_level") or False
+    points.append("breakout → pullback" if breaking_level else "accumulating near value")
+    above_vwap = (_ctx(signal, "vwap_relation") or "UNKNOWN").upper() == "ABOVE"
+    points.append("key levels supportive" if above_vwap else "near supply / resistance")
+    return [f"  – {p}" for p in points]
 
 
-def _bull_bear(signal: Signal) -> str:
-    return "bullish" if signal.direction.upper() == "BULLISH" else "bearish"
+# ---------------------------------------------------------------------------
+# Core formatter entrypoint
+# ---------------------------------------------------------------------------
+
+def format_alert(signal: Signal) -> str:
+    """Format a Signal into a human-readable alert string for Telegram."""
+    style = (signal.style or signal.kind or "").upper()
+
+    if style in ("SCALP", "SCALP_MOMENTUM"):
+        return format_scalp_alert(signal)
+    if style in ("DAY", "DAY_TRADE", "DAYTRADE"):
+        return format_day_trade_alert(signal)
+    if style in ("SWING", "SWING_TRADE"):
+        return format_swing_alert(signal)
+
+    # Fallback to day-trade style
+    return format_day_trade_alert(signal)
 
 
-def _exec_quality(event) -> str:
-    if event is None:
-        return "Unknown"
-    if event.is_aggressive:
-        return "At/Above Ask (Aggressive)"
-    return "Standard/Passive"
+# ---------------------------------------------------------------------------
+# Individual alert formats
+# ---------------------------------------------------------------------------
+
+def format_scalp_alert(signal: Signal) -> str:
+    event = _primary_event(signal)
+    if not event:
+        return "⚡ SCALP ALERT\n(No event data available)"
+
+    ticker = signal.ticker or event.ticker
+    call_or_put = _fmt_call_put(event.call_put)
+    strength = f"{signal.strength:.1f}"
+
+    contract_size = event.contracts or 0
+    avg_price = _fmt_price(event.option_price)
+    strike = _fmt_price(event.strike)
+    expiry_str = _fmt_expiry(event.expiry)
+    notional = _fmt_money(event.notional)
+    vol_oi = _fmt_volume_oi(event.volume, event.open_interest)
+    tags = _join_tags(signal.tags)
+
+    rvol_display = _fmt_rvol(signal)
+    vwap_relation = _fmt_vwap_relation(signal)
+    trend_direction = _fmt_trend_direction(signal)
+    vol_regime = _fmt_vol_regime(signal)
+    created_at = _fmt_timestamp(signal.created_at or event.event_time)
+    otm_pct = _fmt_otm_percent(event)
+    dte = _fmt_dte(event)
+    underlying = _fmt_underlying(signal, event)
+
+    cluster_trades_str, cluster_window_str, cluster_premium_str = _cluster_fields(signal)
+
+    exec_quality = _execution_quality(signal, event)
+    order_structure = _order_structure(signal, event)
+
+    scalp_min = signal.time_horizon_min or SCALP_MINUTES[0]
+    scalp_max = signal.time_horizon_max or SCALP_MINUTES[1]
+
+    text = (
+        f"⚡ SCALP {call_or_put} — {ticker}\n"
+        f"⭐ Strength: {strength} / 10\n\n"
+        f"📡 FLOW SUMMARY\n"
+        f"• 🧾 {contract_size} contracts @ ${avg_price}\n"
+        f"• 🎯 Strike {strike}{call_or_put[0]} | ⏰ Exp {expiry_str}\n"
+        f"• 💰 Notional: ${notional}\n"
+        f"• 📊 Volume / OI: {vol_oi}\n"
+        f"• 🧠 Flow Character: {tags}\n\n"
+        f"🎯 EXECUTION & BEHAVIOR\n"
+        f"• 🎯 Execution: {exec_quality}\n"
+        f"• 🛰 Structure: {order_structure}\n"
+        f"• 🔁 Cluster: {cluster_trades_str} trades in {cluster_window_str} min\n"
+        f"• 💵 Cluster Premium: ${cluster_premium_str}\n\n"
+        f"📈 PRICE & MICROSTRUCTURE\n"
+        f"• 💵 Underlying: ${underlying}\n"
+        f"• 🎯 OTM: {otm_pct}\n"
+        f"• ⏳ DTE: {dte}\n"
+        f"• 📍 VWAP: {vwap_relation}\n"
+        f"• 🔎 RVOL: {rvol_display}\n"
+        f"• 🧬 Microstructure:\n"
+        f"  – { _micro_points(signal)[0][3:] }\n"
+        f"  – { _micro_points(signal)[1][3:] }\n"
+        f"  – { _micro_points(signal)[2][3:] }\n\n"
+        f"💡 WHY THIS MATTERS\n"
+        f"Aggressive, short-dated flow aligned with intraday structure suggests a fast move setup, not random noise.\n\n"
+        f"⚠️ RISK & TIMING\n"
+        f"❌ Invalid if:\n"
+        f"• 🚫 VWAP breaks\n"
+        f"• 🚫 Trend flips\n"
+        f"⏱ Best suited for: {scalp_min}–{scalp_max} min scalp window\n\n"
+        f"📊 REGIME\n"
+        f"• 📈 Trend: {trend_direction}\n"
+        f"• 🌪 Volatility: {vol_regime}\n\n"
+        f"🕒 {created_at} ET"
+    )
+    return text
 
 
-def _order_structure(event) -> str:
-    if event is None:
-        return "Standard"
-    if event.is_sweep:
-        return "Sweep"
-    return "Standard"
+def format_day_trade_alert(signal: Signal) -> str:
+    event = _primary_event(signal)
+    if not event:
+        return "📅 DAY TRADE ALERT\n(No event data available)"
+
+    ticker = signal.ticker or event.ticker
+    call_or_put = _fmt_call_put(event.call_put)
+    strength = f"{signal.strength:.1f}"
+
+    contract_size = event.contracts or 0
+    avg_price = _fmt_price(event.option_price)
+    strike = _fmt_price(event.strike)
+    expiry_str = _fmt_expiry(event.expiry)
+    notional = _fmt_money(event.notional)
+    vol_oi = _fmt_volume_oi(event.volume, event.open_interest)
+    tags = _join_tags(signal.tags)
+
+    rvol_display = _fmt_rvol(signal)
+    vwap_relation = _fmt_vwap_relation(signal)
+    trend_direction = _fmt_trend_direction(signal)
+    vol_regime = _fmt_vol_regime(signal)
+    created_at = _fmt_timestamp(signal.created_at or event.event_time)
+    otm_pct = _fmt_otm_percent(event)
+    dte = _fmt_dte(event)
+    underlying = _fmt_underlying(signal, event)
+
+    cluster_trades_str, cluster_window_str, cluster_premium_str = _cluster_fields(signal)
+
+    exec_quality = _execution_quality(signal, event)
+    order_structure = _order_structure(signal, event)
+
+    day_min = signal.time_horizon_min or DAY_MINUTES[0]
+    day_max = signal.time_horizon_max or DAY_MINUTES[1]
+
+    direction_word = signal.direction.capitalize() if signal.direction else "Directional"
+    buyers_or_sellers = "buyers" if direction_word.lower() == "bullish" else "sellers"
+
+    text = (
+        f"📅 DAY TRADE {call_or_put} — {ticker}\n"
+        f"⭐ Strength: {strength} / 10\n\n"
+        f"📡 FLOW SUMMARY\n"
+        f"• 🧾 {contract_size} contracts @ ${avg_price}\n"
+        f"• 🎯 Strike {strike}{call_or_put[0]} | ⏰ Exp {expiry_str}\n"
+        f"• 💰 Notional: ${notional}\n"
+        f"• 📊 Volume / OI: {vol_oi}\n"
+        f"• 🧠 Flow Character: {tags}\n\n"
+        f"🧠 FLOW INTENT (Session View)\n"
+        f"Persistent {direction_word.lower()} participation suggests controlled continuation rather than one-off speculative flow.\n\n"
+        f"📈 PRICE & STRUCTURE\n"
+        f"• 💵 Underlying: ${underlying}\n"
+        f"• 🎯 OTM: {otm_pct}\n"
+        f"• ⏳ DTE: {dte}\n"
+        f"• 📍 VWAP: {vwap_relation}\n"
+        f"• 🔎 RVOL: {rvol_display}\n"
+        f"• 🧬 Structure:\n"
+        f"  – {_structure_points(signal)[0][3:]}\n"
+        f"  – {_structure_points(signal)[1][3:]}\n"
+        f"  – {_structure_points(signal)[2][3:]}\n"
+        f"  – Cluster: {cluster_trades_str} trades in {cluster_window_str} min\n"
+        f"  – Cluster Premium: ${cluster_premium_str}\n\n"
+        f"💡 WHY THIS IS DAY-TRADE QUALITY\n"
+        f"Flow + structure + regime show session control by {buyers_or_sellers}.\n\n"
+        f"⚠️ RISK & EXECUTION\n"
+        f"❌ Invalid if:\n"
+        f"• 📉 VWAP lost\n"
+        f"• 🔄 15m trend flips\n"
+        f"• ❌ Breakout retest fails\n"
+        f"⏱ Expected window: {day_min}–{day_max} min\n\n"
+        f"📊 REGIME\n"
+        f"• 📈 Trend: {trend_direction}\n"
+        f"• 🌪 Volatility: {vol_regime}\n\n"
+        f"🕒 {created_at} ET"
+    )
+    return text
 
 
-def _flow_summary_block(signal: Signal, include_pattern: bool = False) -> List[str]:
-    event = _first_event(signal)
-    side = (event.call_put or event.side) if event else "CALL/PUT"
-    strike = event.strike if event else 0.0
-    expiry = _format_expiry(event.expiry) if event and event.expiry else "n/a"
-    notional = _format_money(event.notional if event else 0)
-    flow_tags = _flow_tags(signal, include_pattern=include_pattern)
-    return [
-        "📡 FLOW SUMMARY",
-        f"• 🧾 {event.contracts if event else 0} contracts @ {_format_price(event.option_price if event else None)}",
-        f"• 🎯 Strike {strike}{side[0] if side else ''} | ⏰ Exp {expiry}",
-        f"• 💰 Notional: {notional}",
-        f"• {_volume_oi_line(event)}",
-        f"• 🧠 Flow Character: {flow_tags}",
-    ]
+def format_swing_alert(signal: Signal) -> str:
+    event = _primary_event(signal)
+    if not event:
+        return "⏳ SWING ALERT\n(No event data available)"
+
+    ticker = signal.ticker or event.ticker
+    call_or_put = _fmt_call_put(event.call_put)
+    strength = f"{signal.strength:.1f}"
+
+    contract_size = event.contracts or 0
+    avg_price = _fmt_price(event.option_price)
+    strike = _fmt_price(event.strike)
+    expiry_str = _fmt_expiry(event.expiry)
+    notional = _fmt_money(event.notional)
+    vol_oi = _fmt_volume_oi(event.volume, event.open_interest)
+    tags = _join_tags(signal.tags)
+
+    rvol_display = _fmt_rvol(signal)
+    vwap_relation = _fmt_vwap_relation(signal)
+    trend_direction = _fmt_trend_direction(signal)
+    vol_regime = _fmt_vol_regime(signal)
+    created_at = _fmt_timestamp(signal.created_at or event.event_time)
+    otm_pct = _fmt_otm_percent(event)
+    dte = _fmt_dte(event)
+    underlying = _fmt_underlying(signal, event)
+
+    swing_min = signal.time_horizon_days_min or SWING_DAYS[0]
+    swing_max = signal.time_horizon_days_max or SWING_DAYS[1]
+
+    text = (
+        f"⏳ SWING {call_or_put} — {ticker}\n"
+        f"⭐ Strength: {strength} / 10\n\n"
+        f"📡 FLOW SUMMARY\n"
+        f"• 🧾 {contract_size} contracts @ ${avg_price}\n"
+        f"• 🎯 Strike {strike}{call_or_put[0]} | ⏰ Exp {expiry_str}\n"
+        f"• 💰 Total Notional: ${notional}\n"
+        f"• 📊 Volume / OI: {vol_oi}\n"
+        f"• 🧠 Flow Character: {tags}\n\n"
+        f"🏦 FLOW INTENT (Institutional Perspective)\n"
+        f"Repeated {signal.direction.lower() if signal.direction else 'directional'} positioning plus size and time-to-expiry indicates "
+        f"institutional swing positioning rather than random trading activity.\n\n"
+        f"📈 HIGHER-TIMEFRAME STRUCTURE\n"
+        f"• 💵 Underlying: ${underlying}\n"
+        f"• 🎯 OTM: {otm_pct}\n"
+        f"• ⏳ DTE: {dte}\n"
+        f"• 📍 VWAP: {vwap_relation}\n"
+        f"• 🔎 RVOL: {rvol_display}\n"
+        f"• 🧬 High Timeframe Context:\n"
+        f"  – {_htf_points(signal)[0][3:]}\n"
+        f"  – {_htf_points(signal)[1][3:]}\n"
+        f"  – {_htf_points(signal)[2][3:]}\n\n"
+        f"🏦 INSTITUTIONAL READ\n"
+        f"Size, repetition, and structure strongly suggest non-retail accumulation.\n\n"
+        f"⚠️ RISK & PLAN\n"
+        f"❌ Invalid if:\n"
+        f"• 📉 Swing pivot breaks\n"
+        f"• 🔄 Trend reversal on higher timeframe\n"
+        f"⏳ Expected holding: {swing_min}–{swing_max} days\n"
+        f"(Informational only — not financial advice)\n\n"
+        f"📊 REGIME\n"
+        f"• 📈 Trend: {trend_direction}\n"
+        f"• 🌪 Volatility: {vol_regime}\n\n"
+        f"🕒 {created_at} ET"
+    )
+    return text
 
 
-def _price_micro_block(signal: Signal) -> List[str]:
-    event = _first_event(signal)
-    return [
-        "📈 PRICE & MICROSTRUCTURE",
-        f"• 💵 Underlying: {_format_price(event.underlying_price if event else None)}",
-        f"• 🎯 OTM: {_otm_value(signal)}",
-        f"• ⏳ DTE: {_dte_value(signal)}",
-        f"• 📍 VWAP: {_vwap_relation(signal)}",
-        "• 🧬 Microstructure:",
-        *_micro_points(signal),
-    ]
-
-
-def _price_structure_block(signal: Signal) -> List[str]:
-    event = _first_event(signal)
-    return [
-        "📈 PRICE & STRUCTURE",
-        f"• 💵 Underlying: {_format_price(event.underlying_price if event else None)}",
-        f"• 🎯 OTM: {_otm_value(signal)}",
-        f"• ⏳ DTE: {_dte_value(signal)}",
-        f"• 📍 VWAP: {_vwap_relation(signal)}",
-        f"• 🔎 RVOL: {_rvol_value(signal)}",
-        "• 🧬 Structure:",
-        *_intraday_points(signal),
-    ]
-
-
-def _price_htf_block(signal: Signal) -> List[str]:
-    event = _first_event(signal)
-    return [
-        "📈 HIGHER-TIMEFRAME STRUCTURE",
-        f"• 💵 Underlying: {_format_price(event.underlying_price if event else None)}",
-        f"• 🎯 OTM: {_otm_value(signal)}",
-        f"• ⏳ DTE: {_dte_value(signal)}",
-        f"• 📍 VWAP: {_vwap_relation(signal)}",
-        f"• 🔎 RVOL: {_rvol_value(signal)}",
-        "• 🧬 High Timeframe Context:",
-        *_htf_points(signal),
-    ]
-
-
-def _regime_block(signal: Signal) -> List[str]:
-    trend, vol = _regime(signal)
-    return ["📊 REGIME", f"• 📈 Trend: {trend}", f"• 🌪 Volatility: {vol}"]
-
-
-def _flow_intent_block(signal: Signal, horizon: str, include_cluster: bool = False) -> List[str]:
-    event = _first_event(signal)
-    bull_bear = "bullish" if signal.direction.upper() == "BULLISH" else "bearish"
-    count, window, premium = _cluster_info(signal)
-    cluster_line = f"• 💵 Cluster Premium: {_format_money(premium)}" if include_cluster else None
-    exec_quality = _exec_quality(event)
-    structure = _order_structure(event)
-    lines = ["🎯 EXECUTION & BEHAVIOR" if horizon == "scalp" else "🧠 FLOW INTENT (Session View)" if horizon == "day" else "🏦 FLOW INTENT (Institutional Perspective)"]
-    if horizon == "scalp":
-        lines.extend(
-            [
-                f"• 🎯 Execution: {exec_quality}",
-                f"• 🛰 Structure: {structure}",
-                f"• 🔁 Cluster: {count} trades in {window} min",
-            ]
-        )
-        if cluster_line:
-            lines.append(cluster_line)
-    else:
-        lines.append(
-            f"Persistent {bull_bear} participation suggests controlled continuation rather than one-off speculative flow."
-            if horizon == "day"
-            else (
-                "Repeated {dirn} positioning plus size and time-to-expiry indicate institutional swing positioning rather than"
-                " random trading activity."
-            ).format(dirn=bull_bear.capitalize())
-        )
-    return lines
-
-
-def _why_block(title: str, body: str) -> List[str]:
-    return [title, body]
-
-
-def _risk_block(title: str, lines: List[str]) -> List[str]:
-    return [title, "❌ Invalid if:", *lines]
-
-
-def format_short_alert(signal: Signal) -> str:
-    event = _first_event(signal)
-    side = (event.call_put or event.side) if event else "CALL/PUT"
-    cluster_count, cluster_window, cluster_premium = _cluster_info(signal)
-    lines: List[str] = [
-        f"⚡ SCALP {side} — {signal.ticker}",
-        f"⭐ Strength: {signal.strength:.1f} / 10",
-        "",
-        *_flow_summary_block(signal, include_pattern=True),
-        "",
-        *_flow_intent_block(signal, "scalp", include_cluster=True),
-        f"• 💵 Cluster Premium: {_format_money(cluster_premium)}",
-        "",
-        *_price_micro_block(signal),
-        "",
-        *_why_block(
-            "💡 WHY THIS MATTERS",
-            "Aggressive, short-dated flow aligned with intraday structure suggests a fast move setup, not random noise.",
-        ),
-        "",
-        *_risk_block(
-            "⚠️ RISK & TIMING",
-            [
-                "• 🚫 VWAP breaks",
-                "• 🚫 Trend flips",
-                f"⏱ Best suited for: {SCALP_MINUTES[0]}–{SCALP_MINUTES[1]} min scalp window",
-            ],
-        ),
-        "",
-        *_regime_block(signal),
-        "",
-        _format_time(signal),
-    ]
-    return "\n".join(lines)
-
-
-def format_medium_alert(signal: Signal) -> str:
-    event = _first_event(signal)
-    side = (event.call_put or event.side) if event else "CALL/PUT"
-    buyer_seller = "buyers" if signal.direction.upper() == "BULLISH" else "sellers"
-    lines: List[str] = [
-        f"📅 DAY TRADE {side} — {signal.ticker}",
-        f"⭐ Strength: {signal.strength:.1f} / 10",
-        "",
-        *_flow_summary_block(signal, include_pattern=True),
-        "",
-        "🧠 FLOW INTENT (Session View)",
-        "Persistent {bias} participation suggests controlled continuation rather than one-off speculative flow.".format(
-            bias="bullish" if signal.direction.upper() == "BULLISH" else "bearish"
-        ),
-        "",
-        *_price_structure_block(signal),
-        "",
-        *_why_block(
-            "💡 WHY THIS IS DAY-TRADE QUALITY",
-            f"Flow + structure + regime show session control by {buyer_seller}.",
-        ),
-        "",
-        *_risk_block(
-            "⚠️ RISK & EXECUTION",
-            [
-                "• 📉 VWAP lost",
-                "• 🔄 15m trend flips",
-                "• ❌ Breakout retest fails",
-                f"⏱ Expected window: {DAY_MINUTES[0]}–{DAY_MINUTES[1]} min",
-            ],
-        ),
-        "",
-        *_regime_block(signal),
-        "",
-        _format_time(signal),
-    ]
-    return "\n".join(lines)
-
-
-def format_deep_dive_alert(signal: Signal) -> str:
-    event = _first_event(signal)
-    side = (event.call_put or event.side) if event else "CALL/PUT"
-    lines: List[str] = [
-        f"⏳ SWING {side} — {signal.ticker}",
-        f"⭐ Strength: {signal.strength:.1f} / 10",
-        "",
-        *_flow_summary_block(signal, include_pattern=True),
-        "",
-        "🏦 FLOW INTENT (Institutional Perspective)",
-        (
-            "Repeated {bias} positioning plus size and time-to-expiry indicate institutional swing positioning rather than "
-            "random trading activity."
-        ).format(bias="bullish" if signal.direction.upper() == "BULLISH" else "bearish"),
-        "",
-        *_price_htf_block(signal),
-        "",
-        *_why_block(
-            "🏦 INSTITUTIONAL READ",
-            "Size, repetition, and structure strongly suggest non-retail accumulation.",
-        ),
-        "",
-        *_risk_block(
-            "⚠️ RISK & PLAN",
-            [
-                "• 📉 Swing pivot breaks",
-                "• 🔄 Trend reversal on higher timeframe",
-                f"⏳ Expected holding: {SWING_DAYS[0]}–{SWING_DAYS[1]} days",
-                "(Informational only — not financial advice)",
-            ],
-        ),
-        "",
-        *_regime_block(signal),
-        "",
-        _format_time(signal),
-    ]
-    return "\n".join(lines)
-
+# ---------------------------------------------------------------------------
+# Legacy helper (kept for compatibility)
+# ---------------------------------------------------------------------------
 
 def choose_alert_mode(signal: Signal) -> str:
-    kind = signal.kind.upper()
+    kind = (signal.kind or "").upper()
     if kind.startswith("SCALP"):
         return "short"
     if kind.startswith("SWING"):
