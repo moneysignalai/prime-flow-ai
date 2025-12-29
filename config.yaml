@@ -1,0 +1,79 @@
+experiment_id: "v1.0"
+
+general:
+  poll_interval_seconds: 1
+  max_events_per_cycle: 500
+
+market_regime:
+  lookback_minutes: 60
+  rvol_high: 1.5
+  rvol_low: 0.8
+
+tickers:
+  default:
+    enabled: true
+  overrides:
+    TSLA:
+      enabled: true
+      scalp:
+        min_premium: 100000
+    SPY:
+      enabled: true
+      swing:
+        min_premium: 500000
+
+universe:
+  max_tickers: 500
+  fallback:
+    - SPY
+    - QQQ
+    - IWM
+    - DIA
+    - AAPL
+    - MSFT
+    - NVDA
+    - TSLA
+    - META
+    - AMD
+    - GOOGL
+    - AMZN
+    - AVGO
+    - NFLX
+    - SMH
+
+scalp:
+  min_premium: 50000
+  max_dte: 2
+  max_otm_pct: 5
+  min_rvol: 1.3
+  min_strength: 6.0
+
+day_trade:
+  min_premium: 100000
+  max_dte: 10
+  max_otm_pct: 10
+  min_rvol: 1.1
+  min_strength: 6.5
+
+swing:
+  min_premium: 250000
+  min_dte: 14
+  max_dte: 60
+  max_otm_pct: 15
+  min_strength: 7.0
+
+routing:
+  channels:
+    telegram_scalps: "TELEGRAM_CHAT_ID_ALERTS"
+    telegram_swings: "TELEGRAM_CHAT_ID_ALERTS"
+    telegram_main:   "TELEGRAM_CHAT_ID_ALERTS"
+
+provider:
+  name: "massive"
+  base_url: "https://api.massive.com"
+  option_chain_path: "/v3/snapshot/options"
+  equity_snapshot_path: "/v2/snapshot/locale/us/markets/stocks/tickers"
+  # Legacy live flow path retained for compatibility; Massive does not expose
+  # this endpoint for options so polling will fall back to snapshots if
+  # live_flow_path fails.
+  live_flow_path: "/v1/flow/live"
