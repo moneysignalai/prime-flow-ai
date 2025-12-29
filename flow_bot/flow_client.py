@@ -9,6 +9,7 @@ from typing import Any, Dict, Iterator, List, Optional, Set
 import requests
 
 from .config import load_api_keys
+from .universe import resolve_universe
 from .models import FlowEvent
 
 LOGGER = logging.getLogger(__name__)
@@ -65,15 +66,9 @@ class FlowClient:
             self.use_stub = True
 
     def get_top_volume_tickers(self, limit: int = 500) -> list[str]:
-        """
-        Return a list of the most-active symbols by share volume.
+        """Expose universe resolution for callers expecting a volume-ranked list."""
 
-        TODO: implement with provider screeners. Stub returns empty list so
-        callers can fall back to configuration-driven universes.
-        """
-
-        LOGGER.debug("Fetching top %s volume tickers (stub)", limit)
-        return []
+        return resolve_universe(self.cfg or {}, max_tickers=limit)
 
     def get_option_chain_snapshot(self, underlying: str, *, limit: int = 250) -> dict:
         """
@@ -118,16 +113,16 @@ class FlowClient:
             (self.cfg.get("general") or {}).get("poll_interval_seconds", self.poll_interval)
         )
 
-        tickers_cfg = (self.cfg.get("tickers") or {}) if isinstance(self.cfg, dict) else {}
-        overrides = (tickers_cfg.get("overrides") or {}).keys()
-        universe: List[str] = list(overrides) or ["SPY", "QQQ", "TSLA"]
+        universe_cfg = (self.cfg.get("universe") or {}) if isinstance(self.cfg, dict) else {}
+        max_tickers = int(universe_cfg.get("max_tickers") or 500)
+        universe: List[str] = resolve_universe(self.cfg or {}, max_tickers=max_tickers)
 
         seen_ids: Set[str] = set()
 
         LOGGER.info(
             "Starting Massive option-chain polling for live flow on %d tickers: %s",
             len(universe),
-            ", ".join(universe),
+            ", ".join(universe[:20]) + (" ..." if len(universe) > 20 else ""),
         )
 
         while True:

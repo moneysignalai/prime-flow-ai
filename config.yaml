@@ -22,6 +22,21 @@ tickers:
       swing:
         min_premium: 500000
 
+universe:
+  max_tickers: 500
+  fallback:
+    - SPY
+    - QQQ
+    - IWM
+    - AAPL
+    - MSFT
+    - NVDA
+    - TSLA
+    - META
+    - AMD
+    - GOOGL
+    - AMZN
+
 scalp:
   min_premium: 50000
   max_dte: 2
