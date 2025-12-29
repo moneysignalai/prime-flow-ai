@@ -35,9 +35,18 @@ class FlowClient:
         ).lower()
 
         # Massive endpoint components; live_flow_path retained for compatibility but
-        # not used for the option snapshot polling.
-        self.massive_base_url: str = provider_cfg.get("base_url", "https://api.massive.app")
+        # snapshot polling is preferred for options.
+        self.massive_base_url: str = provider_cfg.get("base_url", "https://api.massive.com")
         self.massive_live_flow_path: str = provider_cfg.get("live_flow_path", "/v1/flow/live")
+        self.massive_option_chain_path: str = provider_cfg.get(
+            "option_chain_path", "/v3/snapshot/options"
+        )
+        self.massive_equity_snapshot_path: str = provider_cfg.get(
+            "equity_snapshot_path", "/v2/snapshot/locale/us/markets/stocks/tickers"
+        )
+
+        self.session = requests.Session()
+        self.timeout: float = float(flow_cfg.get("timeout_seconds") or 5.0)
 
         # Backward compatibility: honor legacy flow.massive_live_endpoint if provided.
         legacy_endpoint = flow_cfg.get("massive_live_endpoint")
@@ -65,6 +74,30 @@ class FlowClient:
 
         LOGGER.debug("Fetching top %s volume tickers (stub)", limit)
         return []
+
+    def get_option_chain_snapshot(self, underlying: str, *, limit: int = 250) -> dict:
+        """
+        Wrap Massive Option Chain Snapshot:
+        GET https://api.massive.com/v3/snapshot/options/{underlyingAsset}
+        """
+
+        url = f"{self.massive_base_url.rstrip('/')}/{self.massive_option_chain_path.lstrip('/')}/{underlying}"
+        params = {"limit": limit, "apiKey": self.polygon_massive_key}
+        resp = self.session.get(url, params=params, timeout=self.timeout)
+        resp.raise_for_status()
+        return resp.json() or {}
+
+    def get_equity_snapshot(self, ticker: str) -> dict:
+        """
+        Wrap Massive Single Ticker Snapshot:
+        GET https://api.massive.com/v2/snapshot/locale/us/markets/stocks/tickers/{stocksTicker}
+        """
+
+        url = f"{self.massive_base_url.rstrip('/')}/{self.massive_equity_snapshot_path.lstrip('/')}/{ticker}"
+        params = {"apiKey": self.polygon_massive_key}
+        resp = self.session.get(url, params=params, timeout=self.timeout)
+        resp.raise_for_status()
+        return resp.json() or {}
 
     def stream_live_flow(self) -> Iterator[FlowEvent]:
         """Yield FlowEvent objects in real time (infinite generator)."""
@@ -153,32 +186,26 @@ class FlowClient:
     ) -> Iterator[FlowEvent]:
         """Poll Massive Option Chain Snapshot and yield new FlowEvents."""
 
-        headers = {
-            "X-API-KEY": self.polygon_massive_key,
-            "Accept": "application/json",
-        }
-        base_url = "https://api.massive.app"
-
         for underlying in universe:
-            url = f"{base_url}/v3/snapshot/options/{underlying}"
             try:
-                resp = requests.get(url, headers=headers, timeout=5)
-                if resp.status_code == 404:
-                    LOGGER.error(
-                        "Massive option-chain endpoint returned 404 for %s. "
-                        "Check plan/access or ticker spelling.",
-                        underlying,
-                    )
-                    continue
-                resp.raise_for_status()
+                payload: Dict[str, Any] = self.get_option_chain_snapshot(underlying)
+            except requests.HTTPError as exc:
+                status = exc.response.status_code if exc.response else "unknown"
+                LOGGER.error(
+                    "Massive option-chain endpoint returned %s for %s. Check provider.base_url (%s) and option_chain_path (%s).",
+                    status,
+                    underlying,
+                    self.massive_base_url,
+                    self.massive_option_chain_path,
+                )
+                continue
             except Exception as exc:
                 LOGGER.warning(
                     "Error calling Massive snapshot for %s: %s", underlying, exc
                 )
                 continue
 
-            payload: Dict[str, Any] = resp.json() or {}
-            results = payload.get("results") or []
+            results = (payload.get("results") if isinstance(payload, dict) else []) or []
 
             for contract in results:
                 try:
