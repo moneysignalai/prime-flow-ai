@@ -486,7 +486,7 @@ def format_scalp_alert(signal: Signal) -> str:
         f"  – { _micro_points(signal)[1][3:] }\n"
         f"  – { _micro_points(signal)[2][3:] }\n\n"
         f"💡 WHY THIS MATTERS\n"
-        f"Aggressive, short-dated flow aligned with intraday structure suggests a fast move setup, not random noise.\n\n"
+        f"{why_line}\n\n"
         f"⚠️ RISK & TIMING\n"
         f"❌ Invalid if:\n"
         f"• {bad} VWAP breaks against the trade\n"

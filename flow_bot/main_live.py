@@ -91,6 +91,14 @@ def main():
                 hb.record_signal(sig.kind)
                 logger.log_signal(sig)
 
+                LOGGER.info(
+                    "[SIGNAL] %s | %s | strength=%.1f | direction=%s",
+                    sig.ticker,
+                    sig.kind,
+                    sig.strength,
+                    sig.direction,
+                )
+
                 entry_price = event.underlying_price
                 paper_engine.open_position_for_signal(sig, entry_price)
 

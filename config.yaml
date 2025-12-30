@@ -33,6 +33,16 @@ universe:
     - AVGO
     - NFLX
     - SMH
+    - CRM
+    - ORCL
+    - INTC
+    - IBM
+    - BA
+    - JPM
+    - BAC
+    - XOM
+    - CVX
+    - TSM
 
 scalp:
   enabled: true

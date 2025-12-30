@@ -32,6 +32,16 @@ DEFAULT_FALLBACK = [
     "AVGO",
     "NFLX",
     "SMH",
+    "CRM",
+    "ORCL",
+    "INTC",
+    "IBM",
+    "BA",
+    "JPM",
+    "BAC",
+    "XOM",
+    "CVX",
+    "TSM",
 ]
 
 
