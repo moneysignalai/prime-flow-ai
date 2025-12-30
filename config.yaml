@@ -1,0 +1,86 @@
+experiment_id: "v1.0"
+
+general:
+  poll_interval_seconds: 1
+  max_events_per_cycle: 500
+  max_event_age_minutes: 180
+
+market_regime:
+  lookback_minutes: 60
+  rvol_high: 1.5
+  rvol_low: 0.8
+
+tickers:
+  default:
+    enabled: true
+  overrides: {}
+
+universe:
+  max_tickers: 500
+  fallback:
+    - SPY
+    - QQQ
+    - IWM
+    - DIA
+    - AAPL
+    - MSFT
+    - NVDA
+    - TSLA
+    - META
+    - AMD
+    - GOOGL
+    - AMZN
+    - AVGO
+    - NFLX
+    - SMH
+    - CRM
+    - ORCL
+    - INTC
+    - IBM
+    - BA
+    - JPM
+    - BAC
+    - XOM
+    - CVX
+    - TSM
+
+scalp:
+  enabled: true
+  min_notional: 10000
+  max_dte: 7
+  max_otm_pct: 5
+  min_rvol: 1.1
+  min_strength: 4.0
+
+day_trade:
+  enabled: true
+  min_notional: 15000
+  max_dte: 21
+  max_otm_pct: 10
+  min_rvol: 1.0
+  min_strength: 4.5
+
+swing:
+  enabled: true
+  min_notional: 20000
+  min_dte: 7
+  max_dte: 60
+  max_otm_pct: 15
+  min_rvol: 0.9
+  min_strength: 5.0
+
+routing:
+  channels:
+    telegram_scalps: "TELEGRAM_CHAT_ID_ALERTS"
+    telegram_swings: "TELEGRAM_CHAT_ID_ALERTS"
+    telegram_main:   "TELEGRAM_CHAT_ID_ALERTS"
+
+provider:
+  name: "massive"
+  base_url: "https://api.massive.com"
+  option_chain_path: "/v3/snapshot/options"
+  equity_snapshot_path: "/v2/snapshot/locale/us/markets/stocks/tickers"
+  # Legacy live flow path retained for compatibility; Massive does not expose
+  # this endpoint for options so polling will fall back to snapshots if
+  # live_flow_path fails.
+  live_flow_path: "/v1/flow/live"
